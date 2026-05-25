@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SheetIndex — Construction Document Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F7F6F2;
+  --surface:#FFFFFF;
+  --surface2:#F0EFE9;
+  --border:#E2E0D8;
+  --border2:#C8C6BC;
+  --text:#1A1916;
+  --text2:#5C5A53;
+  --text3:#9B9890;
+  --accent:#2D2926;
+  --accent-light:#F0EFE9;
+  --blue:#1A5FA8;
+  --blue-bg:#EAF1FA;
+  --red:#A32D2D;
+  --red-bg:#FCEBEB;
+  --green:#3B6D11;
+  --green-bg:#EAF3DE;
+  --amber:#854F0B;
+  --amber-bg:#FAEEDA;
+  --mono:'DM Mono',monospace;
+  --sans:'Inter',sans-serif;
+  --display:'Syne',sans-serif;
+  --radius:6px;
+  --radius-lg:10px;
+}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh;overflow:hidden}
+h1,h2,h3,h4{font-family:var(--display)}
+
+#app{display:flex;height:100vh;overflow:hidden}
+
+/* Sidebar */
+#sidebar{
+  width:220px;min-width:220px;background:var(--accent);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#sidebar-logo{
+  padding:20px 20px 16px;
+  font-family:var(--display);font-size:15px;font-weight:700;
+  color:#fff;letter-spacing:-0.3px;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+#sidebar-logo span{
+  display:block;font-size:11px;font-weight:400;
+  color:rgba(255,255,255,0.45);letter-spacing:0.3px;margin-top:2px;
+  font-family:var(--mono);
+}
+#sidebar-nav{padding:12px 0;flex:1}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 20px;cursor:pointer;
+  color:rgba(255,255,255,0.55);font-size:13px;
+  transition:all .15s;position:relative;
+}
+.nav-item:hover{color:rgba(255,255,255,0.85);background:rgba(255,255,255,0.05)}
+.nav-item.active{color:#fff;background:rgba(255,255,255,0.1)}
+.nav-item.active::before{
+  content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:2px;height:16px;background:#fff;border-radius:2px;
+}
+.nav-item.locked{opacity:0.35;cursor:not-allowed}
+.nav-num{
+  width:20px;height:20px;border-radius:50%;
+  background:rgba(255,255,255,0.12);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-family:var(--mono);flex-shrink:0;
+}
+.nav-item.active .nav-num{background:rgba(255,255,255,0.25);color:#fff}
+.nav-item.done .nav-num{background:rgba(255,255,255,0.8);color:var(--accent)}
+.nav-label{font-size:12.5px}
+#sidebar-footer{
+  padding:16px 20px;border-top:1px solid rgba(255,255,255,0.1);
+}
+.btn-logout{
+  width:100%;padding:7px 12px;border-radius:var(--radius);
+  background:transparent;border:1px solid rgba(255,255,255,0.2);
+  color:rgba(255,255,255,0.6);font-size:12px;cursor:pointer;
+  font-family:var(--sans);transition:all .15s;
+}
+.btn-logout:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9)}
+.project-badge{
+  padding:6px 12px 10px;font-size:11px;font-family:var(--mono);
+  color:rgba(255,255,255,0.4);word-break:break-all;
+}
+
+/* Main content */
+#main{flex:1;overflow-y:auto;display:flex;flex-direction:column;background:var(--bg)}
+.view{display:none;flex:1;flex-direction:column;min-height:100%}
+.view.active{display:flex}
+.view-header{
+  padding:28px 36px 20px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+.view-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;color:var(--text);font-family:var(--display)}
+.view-sub{font-size:13px;color:var(--text3);margin-top:3px}
+.view-body{padding:28px 36px;flex:1}
+.view-footer{
+  padding:16px 36px;
+  background:var(--surface);
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+}
+
+/* Buttons */
+.btn{
+  padding:8px 16px;border-radius:var(--radius);font-size:13px;
+  cursor:pointer;font-family:var(--sans);font-weight:500;
+  border:1px solid var(--border2);background:var(--surface);
+  color:var(--text);transition:all .12s;line-height:1.4;
+}
+.btn:hover{background:var(--surface2);border-color:var(--border2)}
+.btn:active{transform:scale(0.98)}
+.btn-primary{
+  background:var(--accent);color:#fff;
+  border-color:var(--accent);
+}
+.btn-primary:hover{background:#3a3631;border-color:#3a3631}
+.btn-danger{background:var(--red-bg);color:var(--red);border-color:#F7C1C1}
+.btn-danger:hover{background:#f7c1c1;border-color:var(--red)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-icon{padding:5px 7px;min-width:28px;display:inline-flex;align-items:center;justify-content:center}
+
+/* Forms */
+.form-group{margin-bottom:18px}
+.form-label{
+  display:block;font-size:12px;font-weight:500;
+  color:var(--text2);margin-bottom:5px;letter-spacing:0.2px;
+  font-family:var(--display);
+}
+.form-input{
+  width:100%;padding:8px 11px;border-radius:var(--radius);
+  border:1px solid var(--border2);background:var(--surface);
+  font-size:13px;color:var(--text);font-family:var(--sans);
+  transition:border-color .12s;outline:none;
+}
+.form-input:focus{border-color:var(--accent)}
+.form-input:read-only{background:var(--surface2);color:var(--text2)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+select.form-input{cursor:pointer}
+
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table th{
+  text-align:left;padding:8px 12px;
+  font-size:11px;font-weight:600;letter-spacing:0.4px;
+  color:var(--text3);background:var(--surface2);
+  border-bottom:1px solid var(--border);
+  font-family:var(--display);text-transform:uppercase;
+}
+.data-table td{
+  padding:8px 12px;border-bottom:1px solid var(--border);
+  vertical-align:middle;
+}
+.data-table tr:hover td{background:var(--surface2)}
+.data-table td input{
+  border:1px solid transparent;background:transparent;
+  padding:3px 6px;border-radius:var(--radius);
+  font-size:13px;color:var(--text);font-family:var(--sans);
+  width:100%;
+}
+.data-table td input:focus{border-color:var(--border2);background:var(--surface);outline:none}
+
+/* Cards */
+.card{
+  background:var(--surface);border-radius:var(--radius-lg);
+  border:1px solid var(--border);padding:20px 24px;
+}
+.card+.card{margin-top:14px}
+
+/* Badge / pill */
+.badge{
+  display:inline-flex;align-items:center;
+  padding:2px 7px;border-radius:3px;
+  font-size:11px;font-family:var(--mono);font-weight:500;
+}
+.badge-gray{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.badge-blue{background:var(--blue-bg);color:var(--blue)}
+.badge-green{background:var(--green-bg);color:var(--green)}
+.badge-amber{background:var(--amber-bg);color:var(--amber)}
+.badge-red{background:var(--red-bg);color:var(--red)}
+
+/* Status badge */
+.status-1{background:#FFF8E7;color:#8B6914;border:1px solid #FAC775}
+.status-2{background:var(--green-bg);color:var(--green);border:1px solid #C0DD97}
+.status-3{background:#F3E8FF;color:#5B21B6;border:1px solid #DDD6FE}
+.status-4{background:#FFF1F0;color:#BE185D;border:1px solid #FBCFE8}
+
+/* Modal */
+#modal-overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.4);z-index:1000;
+  align-items:center;justify-content:center;
+}
+#modal-overlay.open{display:flex}
+#modal{
+  background:var(--surface);border-radius:var(--radius-lg);
+  padding:28px;max-width:420px;width:90%;
+  box-shadow:0 8px 40px rgba(0,0,0,0.15);
+}
+.modal-title{font-family:var(--display);font-size:16px;font-weight:600;margin-bottom:10px}
+.modal-body{font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+/* Alert inline */
+.alert{
+  padding:10px 14px;border-radius:var(--radius);
+  font-size:12.5px;margin-bottom:14px;border:1px solid;
+}
+.alert-danger{background:var(--red-bg);color:var(--red);border-color:#F7C1C1}
+.alert-success{background:var(--green-bg);color:var(--green);border-color:#C0DD97}
+.alert-info{background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4}
+
+/* Upload drop zone */
+#drop-zone{
+  border:2px dashed var(--border2);border-radius:var(--radius-lg);
+  padding:48px 32px;text-align:center;cursor:pointer;
+  transition:all .15s;
+}
+#drop-zone:hover,#drop-zone.drag-over{
+  border-color:var(--accent);background:var(--surface2);
+}
+#drop-zone svg{margin:0 auto 14px;display:block;opacity:0.4}
+.drop-title{font-family:var(--display);font-size:15px;font-weight:600;margin-bottom:6px}
+.drop-sub{font-size:12px;color:var(--text3)}
+
+/* Login screen */
+#view-login{background:var(--bg)}
+.login-wrap{
+  max-width:380px;margin:0 auto;padding:0 20px;
+  display:flex;flex-direction:column;justify-content:center;min-height:100vh;
+}
+.login-logo{
+  font-family:var(--display);font-size:22px;font-weight:700;
+  margin-bottom:8px;letter-spacing:-0.5px;
+}
+.login-sub{font-size:13px;color:var(--text3);margin-bottom:36px}
+
+/* Mono text */
+.mono{font-family:var(--mono)}
+
+/* Package row */
+.pkg-row{
+  background:var(--surface);border-radius:var(--radius);
+  border:1px solid var(--border);padding:12px 14px;
+  display:flex;align-items:center;gap:12px;margin-bottom:8px;
+}
+.pkg-inputs{flex:1;display:grid;grid-template-columns:1fr 160px;gap:10px}
+
+/* Sheet schedule preview */
+.schedule-header{
+  display:grid;grid-template-columns:110px 1fr 120px 140px 130px;
+  gap:0;font-size:11px;font-weight:600;letter-spacing:0.4px;
+  color:var(--text3);text-transform:uppercase;font-family:var(--display);
+  padding:8px 12px;background:var(--surface2);border-radius:var(--radius) var(--radius) 0 0;
+  border:1px solid var(--border);border-bottom:none;
+}
+.schedule-row{
+  display:grid;grid-template-columns:110px 1fr 120px 140px 130px;
+  gap:0;padding:8px 12px;
+  border:1px solid var(--border);border-top:none;
+  font-size:13px;align-items:center;
+}
+.schedule-row:hover{background:var(--surface2)}
+.disc-separator{
+  padding:5px 12px;font-size:11px;font-weight:600;
+  color:var(--text3);background:var(--bg);
+  border:1px solid var(--border);border-top:none;
+  font-family:var(--display);letter-spacing:0.5px;text-transform:uppercase;
+}
+select.status-select{
+  border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);
+  font-size:12px;background:var(--surface);cursor:pointer;font-family:var(--sans);
+  color:var(--text);
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div id="sidebar-logo">
+    SheetIndex
+    <span>Construction Document Manager</span>
+  </div>
+  <div id="sidebar-nav">
+    <div class="nav-item active" data-step="login" onclick="tryNav('login')">
+      <div class="nav-num">1</div>
+      <div class="nav-label">Login</div>
+    </div>
+    <div class="nav-item locked" data-step="project" onclick="tryNav('project')">
+      <div class="nav-num">2</div>
+      <div class="nav-label">Project</div>
+    </div>
+    <div class="nav-item locked" data-step="disciplines" onclick="tryNav('disciplines')">
+      <div class="nav-num">3</div>
+      <div class="nav-label">Disciplines</div>
+    </div>
+    <div class="nav-item locked" data-step="packages" onclick="tryNav('packages')">
+      <div class="nav-num">4</div>
+      <div class="nav-label">Packages</div>
+    </div>
+    <div class="nav-item locked" data-step="upload" onclick="tryNav('upload')">
+      <div class="nav-num">5</div>
+      <div class="nav-label">Upload</div>
+    </div>
+    <div class="nav-item locked" data-step="status" onclick="tryNav('status')">
+      <div class="nav-num">6</div>
+      <div class="nav-label">Status / Export</div>
+    </div>
+  </div>
+  <div id="project-info" style="display:none">
+    <div class="project-badge" id="proj-badge"></div>
+  </div>
+  <div id="sidebar-footer">
+    <button class="btn-logout" onclick="tryLogout()">Sign out</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<!-- VIEW 1: LOGIN -->
+<div id="view-login" class="view active">
+  <div class="login-wrap">
+    <div class="login-logo">SheetIndex</div>
+    <div class="login-sub">Construction Document Sheet Index</div>
+    <div id="login-alert"></div>
+    <div id="form-login">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input id="li-email" class="form-input" type="email" placeholder="demo@firm.com" autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="li-pass" class="form-input" type="password" placeholder="stadium1"/>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doLogin()">Sign in</button>
+      <div style="text-align:center;font-size:12px;color:var(--text3)">
+        <a href="#" onclick="showRegister()" style="color:var(--text2);text-decoration:none">Create account</a>
+        &nbsp;·&nbsp;
+        <a href="#" onclick="showRecover()" style="color:var(--text2);text-decoration:none">Forgot password?</a>
+      </div>
+    </div>
+    <div id="form-register" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input id="reg-name" class="form-input" type="text" placeholder="Jane Smith"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input id="reg-email" class="form-input" type="email" placeholder="architect@firm.com"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="reg-pass" class="form-input" type="password" placeholder="Min 8 characters"/>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRegister()">Create account</button>
+      <div style="text-align:center;font-size:12px">
+        <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to sign in</a>
+      </div>
+    </div>
+    <div id="form-recover" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Account email</label>
+        <input id="rec-email" class="form-input" type="email" placeholder="architect@firm.com"/>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRecover()">Send reset link</button>
+      <div style="text-align:center;font-size:12px">
+        <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to sign in</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- VIEW 2: PROJECT -->
+<div id="view-project" class="view">
+  <div class="view-header">
+    <div class="view-title">Project</div>
+    <div class="view-sub">Define project identity and generate a unique project number.</div>
+  </div>
+  <div class="view-body">
+    <div style="max-width:520px">
+      <div id="proj-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Project Name</label>
+        <input id="proj-name" class="form-input" type="text" placeholder="e.g., New Stadium Renovation" oninput="markDirty('project')"/>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Country</label>
+          <select id="proj-country" class="form-input" onchange="updateProjectNum()">
+            <option value="us">United States (US)</option>
+            <option value="gb">United Kingdom (GB)</option>
+            <option value="ca">Canada (CA)</option>
+            <option value="au">Australia (AU)</option>
+            <option value="de">Germany (DE)</option>
+            <option value="fr">France (FR)</option>
+            <option value="jp">Japan (JP)</option>
+            <option value="cn">China (CN)</option>
+            <option value="br">Brazil (BR)</option>
+            <option value="ae">UAE (AE)</option>
+            <option value="sg">Singapore (SG)</option>
+            <option value="za">South Africa (ZA)</option>
+            <option value="mx">Mexico (MX)</option>
+            <option value="nz">New Zealand (NZ)</option>
+            <option value="es">Spain (ES)</option>
+            <option value="it">Italy (IT)</option>
+            <option value="nl">Netherlands (NL)</option>
+            <option value="xx">Other (XX)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">State / Region</label>
+          <input id="proj-state" class="form-input" type="text" placeholder="e.g., TX" oninput="markDirty('project')"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input id="proj-city" class="form-input" type="text" placeholder="e.g., Dallas" oninput="markDirty('project')"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ZIP / Postal Code</label>
+          <input id="proj-zip" class="form-input" type="text" placeholder="75201" oninput="markDirty('project')"/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Project Number <span style="font-weight:400;color:var(--text3)">— auto-generated, editable, max 12 chars</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="proj-num" class="form-input mono" type="text" maxlength="12" placeholder="XX.YYMMDD.hhmm" oninput="markDirty('project')"/>
+          <button class="btn btn-sm" onclick="refreshProjectNum()" title="Regenerate">↻</button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Format: CC.YYMMDD.hhmm · CC = country code · YY = year · MM = month · DD = day · hh = hour · mm = minute</div>
+      </div>
+    </div>
+  </div>
+  <div class="view-footer">
+    <button class="btn btn-primary" onclick="saveProject()">Save</button>
+    <button class="btn" onclick="saveAndNext('project','disciplines')">Save &amp; Next →</button>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="tryNav('login')">← Back</button>
+    <button class="btn" onclick="tryExit()">Exit</button>
+  </div>
+</div>
+
+<!-- VIEW 3: DISCIPLINES -->
+<div id="view-disciplines" class="view">
+  <div class="view-header">
+    <div class="view-title">Disciplines</div>
+    <div class="view-sub">Define discipline order, names, and sheet number prefixes. Prefixes must be unique.</div>
+  </div>
+  <div class="view-body">
+    <div id="disc-alert"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+      <button class="btn btn-sm" onclick="addDiscipline()">+ Add Discipline</button>
+      <span style="font-size:12px;color:var(--text3)">Click any cell to edit. Sorted by Order #.</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="disc-table">
+        <thead>
+          <tr>
+            <th style="width:80px">Order</th>
+            <th>Discipline Name</th>
+            <th style="width:100px">Prefix</th>
+            <th style="width:72px">Delete</th>
+          </tr>
+        </thead>
+        <tbody id="disc-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="view-footer">
+    <button class="btn btn-primary" onclick="saveDisciplines()">Save</button>
+    <button class="btn" onclick="saveAndNext('disciplines','packages')">Save &amp; Next →</button>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="tryNav('project')">← Back</button>
+    <button class="btn" onclick="tryExit()">Exit</button>
+  </div>
+</div>
+
+<!-- VIEW 4: PACKAGES -->
+<div id="view-packages" class="view">
+  <div class="view-header">
+    <div class="view-title">Project Packages</div>
+    <div class="view-sub">Define submission packages with due dates and upload drawing sets.</div>
+  </div>
+  <div class="view-body">
+    <div id="pkg-alert"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+      <button class="btn btn-sm" onclick="addPackage()">+ Add Package</button>
+    </div>
+    <div id="pkg-list"></div>
+  </div>
+  <div class="view-footer">
+    <button class="btn btn-primary" onclick="savePackages()">Save</button>
+    <button class="btn" onclick="saveAndNext('packages','upload')">Save &amp; Next →</button>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="tryNav('disciplines')">← Back</button>
+    <button class="btn" onclick="tryExit()">Exit</button>
+  </div>
+</div>
+
+<!-- VIEW 5: UPLOAD -->
+<div id="view-upload" class="view">
+  <div class="view-header">
+    <div class="view-title">Upload Drawing Files</div>
+    <div class="view-sub">Select or drag individual PDF sheets or a combined drawing set.</div>
+  </div>
+  <div class="view-body">
+    <div id="upload-alert"></div>
+    <div id="drop-zone" onclick="triggerFileInput()">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <polyline points="9 15 12 12 15 15"/>
+      </svg>
+      <div class="drop-title">Drop PDF files here</div>
+      <div class="drop-sub">Or click to browse · Supports combined or individual sheet PDFs</div>
+    </div>
+    <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
+    <div id="file-list" style="margin-top:18px"></div>
+    <div id="extraction-progress" style="display:none;margin-top:12px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Extracting sheet data...</div>
+      <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="ext-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s"></div>
+      </div>
+    </div>
+  </div>
+  <div class="view-footer">
+    <button class="btn btn-primary" onclick="saveUpload()">Save</button>
+    <button class="btn" onclick="saveAndNext('upload','status')">Save &amp; Next →</button>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="tryNav('packages')">← Back</button>
+    <button class="btn" onclick="tryExit()">Exit</button>
+  </div>
+</div>
+
+<!-- VIEW 6: STATUS / EXPORT -->
+<div id="view-status" class="view">
+  <div class="view-header">
+    <div class="view-title">Sheet Schedule</div>
+    <div class="view-sub">Preview, set status, and export the complete sheet index.</div>
+  </div>
+  <div class="view-body">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px">
+      <button class="btn btn-sm" onclick="exportXLSX()">Export XLSX</button>
+      <button class="btn btn-sm" onclick="exportCSV()">Export CSV</button>
+      <button class="btn btn-sm" onclick="exportRevit()">Export Revit (Tab-delimited)</button>
+      <button class="btn btn-sm" onclick="exportJSON()">Export JSON</button>
+      <button class="btn btn-sm" onclick="printSchedule()">Print / PDF</button>
+    </div>
+    <div style="margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase;margin-bottom:10px">Status Definitions</div>
+      <div id="status-defs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <div id="schedule-container"></div>
+    <div id="add-sheet-row" style="margin-top:12px">
+      <button class="btn btn-sm" onclick="addManualSheet()">+ Add Sheet Manually</button>
+    </div>
+  </div>
+  <div class="view-footer">
+    <button class="btn" onclick="tryNav('upload')">← Back</button>
+    <button class="btn" onclick="tryExit()">Exit</button>
+  </div>
+</div>
+
+</div><!-- #main -->
+</div><!-- #app -->
+
+<!-- MODAL -->
+<div id="modal-overlay">
+  <div id="modal">
+    <div class="modal-title" id="modal-title">Alert</div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions" id="modal-actions"></div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// DATA MODEL
+// ================================================================
+let DB = {
+  users: JSON.parse(localStorage.getItem('si_users') || '[]'),
+  projects: JSON.parse(localStorage.getItem('si_projects') || '[]')
+};
+
+function saveDB() {
+  localStorage.setItem('si_users', JSON.stringify(DB.users));
+  localStorage.setItem('si_projects', JSON.stringify(DB.projects));
+}
+
+let S = {
+  user: null,
+  project: null,
+  dirty: {},
+  pendingNav: null,
+  _uploadPkgId: null
+};
+
+const DEFAULT_DISCIPLINES = [
+  {order:'000',name:'Cover Sheet',prefix:'X0'},
+  {order:'001',name:'Drawing Index',prefix:'X1'},
+  {order:'011',name:'Life Safety',prefix:'LS'},
+  {order:'101',name:'Site Development',prefix:'SID'},
+  {order:'110',name:'Civil Demolition',prefix:'CD'},
+  {order:'111',name:'Civil',prefix:'C'},
+  {order:'130',name:'Landscape Demolition',prefix:'LD'},
+  {order:'131',name:'Landscape',prefix:'L'},
+  {order:'200',name:'Structural Demolition',prefix:'SD'},
+  {order:'201',name:'Structural',prefix:'S'},
+  {order:'300',name:'Architectural Demolition',prefix:'AD'},
+  {order:'301',name:'Architecture',prefix:'A'},
+  {order:'311',name:'Architectural Materials',prefix:'AM'},
+  {order:'320',name:'Seating Demolition',prefix:'STD'},
+  {order:'321',name:'Seating',prefix:'ST'},
+  {order:'331',name:'Graphic Signage',prefix:'GS'},
+  {order:'340',name:'Interior Architecture Demolition',prefix:'IAD'},
+  {order:'341',name:'Interior Architecture',prefix:'IA'},
+  {order:'500',name:'Plumbing Demolition',prefix:'PD'},
+  {order:'501',name:'Plumbing',prefix:'P'},
+  {order:'510',name:'Fire Protection Demolition',prefix:'FPD'},
+  {order:'511',name:'Fire Protection',prefix:'FP'},
+  {order:'530',name:'Mechanical Demolition',prefix:'MD'},
+  {order:'531',name:'Mechanical',prefix:'M'},
+  {order:'600',name:'Electrical Power Demolition',prefix:'EPD'},
+  {order:'601',name:'Electrical Power',prefix:'EP'},
+  {order:'610',name:'Electrical Lighting Demolition',prefix:'ELD'},
+  {order:'611',name:'Electrical Lighting',prefix:'EL'},
+  {order:'640',name:'Technology Demolition',prefix:'TD'},
+  {order:'641',name:'Technology',prefix:'T'},
+  {order:'700',name:'Food Service Demolition',prefix:'FSD'},
+  {order:'701',name:'Food Service',prefix:'FS'},
+  {order:'710',name:'Audio Visual Demolition',prefix:'AVD'},
+  {order:'711',name:'Audio Visual',prefix:'AV'},
+];
+
+const DEFAULT_PACKAGES = [
+  {id:uid(),name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
+  {id:uid(),name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
+  {id:uid(),name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
+  {id:uid(),name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
+];
+
+const DEFAULT_STATUSES = [
+  {id:1,name:'Not for Construction'},
+  {id:2,name:'Issued for Construction'},
+  {id:3,name:'To Be Decided 1'},
+  {id:4,name:'To Be Decided 2'},
+];
+
+function uid() { return Math.random().toString(36).slice(2,9); }
+
+// ================================================================
+// NAVIGATION
+// ================================================================
+const STEP_ORDER = ['login','project','disciplines','packages','upload','status'];
+
+function tryNav(step) {
+  if (!S.user && step !== 'login') return;
+  const navEl = document.querySelector(`.nav-item[data-step="${step}"]`);
+  if (navEl && navEl.classList.contains('locked')) return;
+  const cur = document.querySelector('.view.active');
+  const curStep = cur ? cur.id.replace('view-','') : '';
+  if (S.dirty[curStep]) {
+    S.pendingNav = step;
+    showModal('Unsaved Changes',
+      'You have unsaved changes on this step. Save before leaving or discard your edits?',
+      [
+        {label:'Save and continue', primary:true, action:()=>{ saveCurrent(curStep); closeModal(); goTo(step); }},
+        {label:'Discard and leave', action:()=>{ S.dirty[curStep]=false; closeModal(); goTo(step); }},
+        {label:'Cancel', action:closeModal}
+      ]
+    );
+    return;
+  }
+  goTo(step);
+}
+
+function goTo(step) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + step).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.classList.remove('active');
+    if (n.dataset.step === step) n.classList.add('active');
+  });
+  if (step === 'disciplines' && S.project) renderDisciplines();
+  if (step === 'packages' && S.project) renderPackages();
+  if (step === 'upload' && S.project) renderFileList();
+  if (step === 'status' && S.project) { renderStatusDefs(); renderSchedule(); }
+}
+
+function unlockUpTo(step) {
+  const idx = STEP_ORDER.indexOf(step);
+  document.querySelectorAll('.nav-item').forEach(n => {
+    const ni = STEP_ORDER.indexOf(n.dataset.step);
+    if (ni <= idx) n.classList.remove('locked');
+  });
+}
+
+function saveCurrent(step) {
+  if (step === 'project') saveProject(true);
+  else if (step === 'disciplines') saveDisciplines(true);
+  else if (step === 'packages') savePackages(true);
+  else if (step === 'upload') saveUpload(true);
+}
+
+function saveAndNext(cur, next) {
+  if (saveCurrent(cur) !== false) goTo(next);
+}
+
+function tryLogout() {
+  const cur = document.querySelector('.view.active');
+  const curStep = cur ? cur.id.replace('view-','') : '';
+  if (S.dirty[curStep]) {
+    showModal('Unsaved Changes', 'You have unsaved changes. Save before signing out?', [
+      {label:'Save and sign out', primary:true, action:()=>{ saveCurrent(curStep); doLogout(); closeModal(); }},
+      {label:'Sign out without saving', action:()=>{ doLogout(); closeModal(); }},
+      {label:'Cancel', action:closeModal}
+    ]);
+    return;
+  }
+  doLogout();
+}
+
+function doLogout() {
+  S.user = null; S.project = null; S.dirty = {};
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.dataset.step !== 'login') n.classList.add('locked');
+  });
+  document.getElementById('project-info').style.display = 'none';
+  goTo('login');
+}
+
+function tryExit() {
+  showModal('Exit Application', 'Exit the current session? Your saved data will be preserved.',
+    [{label:'Exit', primary:true, action:()=>{ window.close(); closeModal(); }},
+     {label:'Cancel', action:closeModal}]);
+}
+
+function markDirty(step) { S.dirty[step] = true; }
+
+// ================================================================
+// MODAL
+// ================================================================
+function showModal(title, body, actions) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent = body;
+  const ac = document.getElementById('modal-actions');
+  ac.innerHTML = '';
+  actions.forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'btn' + (a.primary ? ' btn-primary' : '');
+    b.textContent = a.label;
+    b.onclick = a.action;
+    ac.appendChild(b);
+  });
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target.id === 'modal-overlay') closeModal();
+});
+
+// ================================================================
+// AUTH — LEVEL 1
+// ================================================================
+function showLogin() {
+  document.getElementById('form-login').style.display = '';
+  document.getElementById('form-register').style.display = 'none';
+  document.getElementById('form-recover').style.display = 'none';
+  setAlert('login-alert', '');
+}
+function showRegister() {
+  document.getElementById('form-login').style.display = 'none';
+  document.getElementById('form-register').style.display = '';
+  document.getElementById('form-recover').style.display = 'none';
+  setAlert('login-alert', '');
+}
+function showRecover() {
+  document.getElementById('form-login').style.display = 'none';
+  document.getElementById('form-register').style.display = 'none';
+  document.getElementById('form-recover').style.display = '';
+  setAlert('login-alert', '');
+}
+
+function doLogin() {
+  const email = document.getElementById('li-email').value.trim();
+  const pass = document.getElementById('li-pass').value;
+  if (!email || !pass) { setAlert('login-alert', 'Please enter email and password.', 'danger'); return; }
+  const user = DB.users.find(u => u.email === email && u.pass === pass);
+  if (!user) { setAlert('login-alert', 'Incorrect email or password.', 'danger'); return; }
+  S.user = user;
+  postLogin();
+}
+
+function doRegister() {
+  const name = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const pass = document.getElementById('reg-pass').value;
+  if (!name || !email || !pass) { setAlert('login-alert', 'All fields required.', 'danger'); return; }
+  if (pass.length < 8) { setAlert('login-alert', 'Password must be at least 8 characters.', 'danger'); return; }
+  if (DB.users.find(u => u.email === email)) { setAlert('login-alert', 'Email already registered.', 'danger'); return; }
+  const user = {id:uid(), name, email, pass, created:Date.now()};
+  DB.users.push(user); saveDB();
+  S.user = user;
+  postLogin();
+}
+
+function doRecover() {
+  const email = document.getElementById('rec-email').value.trim();
+  if (!email) { setAlert('login-alert', 'Enter your account email.', 'danger'); return; }
+  const user = DB.users.find(u => u.email === email);
+  if (!user) { setAlert('login-alert', 'No account found with that email.', 'danger'); return; }
+  setAlert('login-alert', `Reset link sent to ${email}. (Demo: password is "${user.pass}")`, 'info');
+  showLogin();
+}
+
+function postLogin() {
+  unlockUpTo('project');
+  document.getElementById('project-info').style.display = '';
+  document.getElementById('proj-badge').textContent = S.user.email;
+  S.project = null;
+  initProject();
+  goTo('project');
+}
+
+// ================================================================
+// PROJECT — LEVEL 2
+// ================================================================
+function genProjectNum() {
+  const now = new Date();
+  const cc = (document.getElementById('proj-country') || {value:'us'}).value.toUpperCase().slice(0,2) || 'US';
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2,'0');
+  const dd = String(now.getDate()).padStart(2,'0');
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mi = String(now.getMinutes()).padStart(2,'0');
+  return `${cc}.${yy}${mm}${dd}.${hh}${mi}`;
+}
+
+function updateProjectNum() {
+  const el = document.getElementById('proj-num');
+  if (el) el.value = genProjectNum();
+  markDirty('project');
+}
+
+function refreshProjectNum() {
+  document.getElementById('proj-num').value = genProjectNum();
+  markDirty('project');
+}
+
+function initProject() {
+  document.getElementById('proj-name').value = '';
+  document.getElementById('proj-state').value = '';
+  document.getElementById('proj-city').value = '';
+  document.getElementById('proj-zip').value = '';
+  document.getElementById('proj-num').value = genProjectNum();
+  setAlert('proj-alert', '');
+  S.dirty['project'] = false;
+}
+
+function saveProject(silent) {
+  const name = document.getElementById('proj-name').value.trim();
+  const num = document.getElementById('proj-num').value.trim();
+  if (!name) { setAlert('proj-alert', 'Project name is required.', 'danger'); return false; }
+  if (!num) { setAlert('proj-alert', 'Project number is required.', 'danger'); return false; }
+  if (num.length > 12) { setAlert('proj-alert', 'Project number must be 12 characters or less.', 'danger'); return false; }
+  const dup = DB.projects.find(p => p.num === num && p.id !== S.project?.id);
+  if (dup) {
+    showModal('Duplicate Project Number',
+      `Project number "${num}" is already in use. Please use a different number.`,
+      [{label:'OK', primary:true, action:closeModal}]);
+    return false;
+  }
+  if (!S.project) {
+    S.project = {
+      id: uid(),
+      ownerId: S.user.id,
+      disciplines: JSON.parse(JSON.stringify(DEFAULT_DISCIPLINES)),
+      packages: JSON.parse(JSON.stringify(DEFAULT_PACKAGES)),
+      statuses: JSON.parse(JSON.stringify(DEFAULT_STATUSES)),
+      sheets: [],
+      created: Date.now()
+    };
+    DB.projects.push(S.project);
+  }
+  S.project.name = name;
+  S.project.num = num;
+  S.project.country = document.getElementById('proj-country').value;
+  S.project.state = document.getElementById('proj-state').value;
+  S.project.city = document.getElementById('proj-city').value;
+  S.project.zip = document.getElementById('proj-zip').value;
+  saveDB();
+  S.dirty['project'] = false;
+  document.getElementById('proj-badge').textContent = num;
+  unlockUpTo('disciplines');
+  if (!silent) setAlert('proj-alert', 'Project saved.', 'success');
+  return true;
+}
+
+// ================================================================
+// DISCIPLINES — LEVEL 3
+// ================================================================
+function renderDisciplines() {
+  if (!S.project) return;
+  const tbody = document.getElementById('disc-tbody');
+  const sorted = [...S.project.disciplines].sort((a,b) =>
+    a.order.localeCompare(b.order, 'en', {numeric:true}));
+  tbody.innerHTML = sorted.map(d => `
+    <tr data-prefix="${d.prefix}">
+      <td><input class="mono" value="${d.order}" onchange="updateDisc('${d.prefix}','order',this.value)" style="width:60px"/></td>
+      <td><input value="${escHtml(d.name)}" onchange="updateDisc('${d.prefix}','name',this.value)"/></td>
+      <td><input class="mono" value="${d.prefix}" onchange="updateDiscPrefix('${d.prefix}',this.value)" style="width:70px"/></td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteDisc('${d.prefix}')">×</button></td>
+    </tr>
+  `).join('');
+}
+
+function updateDisc(prefix, field, val) {
+  const d = S.project.disciplines.find(x => x.prefix === prefix);
+  if (d) { d[field] = val.trim(); markDirty('disciplines'); }
+}
+
+function updateDiscPrefix(oldPrefix, newPrefix) {
+  newPrefix = newPrefix.trim().toUpperCase();
+  if (!newPrefix) return;
+  const dup = S.project.disciplines.find(x => x.prefix === newPrefix && x.prefix !== oldPrefix);
+  if (dup) {
+    showModal('Duplicate Prefix',
+      `Sheet prefix "${newPrefix}" is already in use. Each prefix must be unique.`,
+      [{label:'OK', primary:true, action:closeModal}]);
+    renderDisciplines(); return;
+  }
+  const d = S.project.disciplines.find(x => x.prefix === oldPrefix);
+  if (d) { d.prefix = newPrefix; markDirty('disciplines'); }
+}
+
+function addDiscipline() {
+  S.project.disciplines.push({order:'999', name:'New Discipline', prefix:'ND'+uid().slice(0,2).toUpperCase()});
+  renderDisciplines();
+  markDirty('disciplines');
+}
+
+function deleteDisc(prefix) {
+  showModal('Delete Discipline', `Remove discipline with prefix "${prefix}"?`, [
+    {label:'Delete', primary:true, action:()=>{ S.project.disciplines = S.project.disciplines.filter(d => d.prefix !== prefix); renderDisciplines(); markDirty('disciplines'); closeModal(); }},
+    {label:'Cancel', action:closeModal}
+  ]);
+}
+
+function saveDisciplines(silent) {
+  const prefixes = S.project.disciplines.map(d => d.prefix);
+  if (new Set(prefixes).size !== prefixes.length) {
+    setAlert('disc-alert', 'Duplicate prefixes detected. Each discipline must have a unique prefix.', 'danger');
+    return false;
+  }
+  saveDB(); S.dirty['disciplines'] = false;
+  unlockUpTo('packages');
+  if (!silent) setAlert('disc-alert', 'Disciplines saved.', 'success');
+  return true;
+}
+
+// ================================================================
+// PACKAGES — LEVEL 4
+// ================================================================
+function renderPackages() {
+  if (!S.project) return;
+  const el = document.getElementById('pkg-list');
+  el.innerHTML = S.project.packages.map((pkg, i) => `
+    <div class="pkg-row" id="pkg-${pkg.id}">
+      <div style="color:var(--text3);font-size:13px;min-width:20px;text-align:center">${i+1}</div>
+      <div class="pkg-inputs">
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Package Name</div>
+          <input class="form-input" style="height:32px;font-size:13px" value="${escHtml(pkg.name)}" oninput="updatePkg('${pkg.id}','name',this.value)"/>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Due Date</div>
+          <input class="form-input mono" style="height:32px;font-size:13px" type="date" value="${pkg.due}" oninput="updatePkg('${pkg.id}','due',this.value)"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm" title="Move up" onclick="movePkg('${pkg.id}',-1)">↑</button>
+        <button class="btn btn-sm" title="Move down" onclick="movePkg('${pkg.id}',1)">↓</button>
+        <button class="btn btn-sm" onclick="insertPkgAfter('${pkg.id}')">+ Insert</button>
+        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')">Upload ↑</button>
+        <button class="btn btn-sm btn-danger" onclick="deletePkg('${pkg.id}')">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updatePkg(id, field, val) {
+  const p = S.project.packages.find(x => x.id === id);
+  if (p) { p[field] = val; markDirty('packages'); }
+}
+
+function movePkg(id, dir) {
+  const arr = S.project.packages;
+  const i = arr.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  renderPackages(); markDirty('packages');
+}
+
+function addPackage() {
+  S.project.packages.push({id:uid(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
+  renderPackages(); markDirty('packages');
+}
+
+function insertPkgAfter(id) {
+  const arr = S.project.packages;
+  const i = arr.findIndex(x => x.id === id);
+  arr.splice(i+1, 0, {id:uid(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
+  renderPackages(); markDirty('packages');
+}
+
+function deletePkg(id) {
+  showModal('Delete Package', 'Remove this package and all its uploaded sheets?', [
+    {label:'Delete', primary:true, action:()=>{ S.project.packages = S.project.packages.filter(p => p.id !== id); S.project.sheets = S.project.sheets.filter(s => s.packageId !== id); renderPackages(); markDirty('packages'); closeModal(); }},
+    {label:'Cancel', action:closeModal}
+  ]);
+}
+
+function openUpload(pkgId) {
+  S._uploadPkgId = pkgId;
+  savePackages(true);
+  goTo('upload');
+  const pkg = S.project.packages.find(p => p.id === pkgId);
+  setAlert('upload-alert', `Uploading for package: ${pkg ? pkg.name : ''}`, 'info');
+  renderFileList();
+}
+
+function savePackages(silent) {
+  saveDB(); S.dirty['packages'] = false;
+  unlockUpTo('upload');
+  if (!silent) setAlert('pkg-alert', 'Packages saved.', 'success');
+  return true;
+}
+
+// ================================================================
+// UPLOAD & EXTRACTION — LEVEL 5
+// ================================================================
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+
+function triggerFileInput() { document.getElementById('file-input').click(); }
+
+async function handleFiles(files) {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  if (!pkgId) { setAlert('upload-alert', 'Please select a package first in the Packages step.', 'danger'); return; }
+  const progressEl = document.getElementById('extraction-progress');
+  const bar = document.getElementById('ext-bar');
+  progressEl.style.display = '';
+  for (let i = 0; i < files.length; i++) {
+    bar.style.width = Math.round((i / files.length) * 100) + '%';
+    const file = files[i];
+    if (file.type !== 'application/pdf') continue;
+    const extracted = await extractFromPDF(file);
+    for (const sheet of extracted) {
+      const existing = S.project.sheets.find(s => s.sheetNum === sheet.sheetNum && s.packageId === pkgId);
+      if (!existing) {
+        S.project.sheets.push({
+          id: uid(), packageId: pkgId,
+          sheetNum: sheet.sheetNum, sheetName: sheet.sheetName,
+          fileName: file.name, statusId: 1,
+          discipline: guessDiscipline(sheet.sheetNum)
+        });
+      }
+    }
+  }
+  bar.style.width = '100%';
+  setTimeout(() => progressEl.style.display = 'none', 600);
+  markDirty('upload');
+  renderFileList();
+}
+
+async function extractFromPDF(file) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    const results = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const fullText = tc.items.map(i => i.str).join(' ');
+      results.push(parseSheetFromText(fullText, file.name, p));
+    }
+    return results;
+  } catch(e) {
+    return [parseSheetFromFilename(file.name)];
+  }
+}
+
+function parseSheetFromText(text, filename, pageNum) {
+  const patterns = [
+    /\b([A-Z]{1,4}[-.]?\d{1,4}(?:\.\d{1,2})?)\s+[-–]?\s*([A-Z][A-Z\s,&\/\-]{3,50})/,
+    /Sheet[:\s]+([A-Z]{1,4}[-.]?\d{1,4})\s+([A-Z][A-Za-z\s,&\/\-]{3,50})/i,
+    /Drawing\s+No\.?\s*:?\s*([A-Z]{1,4}[-.]?\d{1,4})/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) return {sheetNum: m[1].replace(/\s+/g,''), sheetName: (m[2]||'').trim().replace(/\s{2,}/g,' ').slice(0,60) || 'Sheet ' + pageNum};
+  }
+  return parseSheetFromFilename(filename, pageNum);
+}
+
+function parseSheetFromFilename(fname, pageNum=1) {
+  const base = fname.replace(/\.pdf$/i,'').replace(/[_-]/g,' ');
+  const m = base.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
+  if (m) return {sheetNum: m[1].toUpperCase(), sheetName: m[2]};
+  return {sheetNum: 'SH-' + pageNum, sheetName: base.slice(0,50) || 'Untitled Sheet'};
+}
+
+function guessDiscipline(sheetNum) {
+  if (!S.project) return '';
+  const prefix = sheetNum.replace(/\d.*$/,'').toUpperCase();
+  const disc = S.project.disciplines.find(d => d.prefix === prefix);
+  return disc ? disc.prefix : '';
+}
+
+function renderFileList() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  const el = document.getElementById('file-list');
+  if (!sheets.length) { el.innerHTML = ''; return; }
+  const pkg = S.project.packages.find(p => p.id === pkgId);
+  const discOpts = S.project.disciplines
+    .sort((a,b) => a.order.localeCompare(b.order,'en',{numeric:true}))
+    .map(d => `<option value="${d.prefix}">${d.prefix} — ${escHtml(d.name)}</option>`).join('');
+  el.innerHTML = `
+    <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px">
+      ${pkg ? escHtml(pkg.name) : ''} — ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}
+    </div>
+    <table class="data-table">
+      <thead><tr><th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Source File</th><th>Delete</th></tr></thead>
+      <tbody>
+        ${sheets.map(s => `
+          <tr>
+            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
+            <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
+            <td>
+              <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px">
+                <option value="">— unassigned —</option>
+                ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${d.prefix} — ${escHtml(d.name)}</option>`).join('')}
+              </select>
+            </td>
+            <td style="color:var(--text3);font-size:11px;font-family:var(--mono)">${escHtml(s.fileName||'—')}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function updateSheet(id, field, val) {
+  const s = S.project.sheets.find(x => x.id === id);
+  if (s) { s[field] = val; markDirty('upload'); }
+}
+
+function deleteSheet(id) {
+  showModal('Remove Sheet', 'Remove this sheet from the index?', [
+    {label:'Remove', primary:true, action:()=>{ S.project.sheets = S.project.sheets.filter(s => s.id !== id); renderFileList(); markDirty('upload'); closeModal(); }},
+    {label:'Cancel', action:closeModal}
+  ]);
+}
+
+function saveUpload(silent) {
+  saveDB(); S.dirty['upload'] = false;
+  unlockUpTo('status');
+  if (!silent) setAlert('upload-alert', 'Sheets saved.', 'success');
+  return true;
+}
+
+// ================================================================
+// STATUS / PREVIEW / EXPORT — LEVEL 6
+// ================================================================
+function renderStatusDefs() {
+  const el = document.getElementById('status-defs');
+  el.innerHTML = S.project.statuses.map(st => `
+    <div style="display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px">
+      <span class="badge badge-gray mono">${st.id}</span>
+      <input value="${escHtml(st.name)}" style="border:none;background:transparent;font-size:13px;color:var(--text);width:180px" onchange="updateStatus(${st.id},'name',this.value)"/>
+    </div>
+  `).join('');
+}
+
+function updateStatus(id, field, val) {
+  const s = S.project.statuses.find(x => x.id === id);
+  if (s) s[field] = val;
+}
+
+function renderSchedule() {
+  if (!S.project) return;
+  const container = document.getElementById('schedule-container');
+  const discOrder = {};
+  S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
+  const sorted = [...S.project.sheets].sort((a,b) => {
+    const da = discOrder[a.discipline] || 9999;
+    const db = discOrder[b.discipline] || 9999;
+    if (da !== db) return da - db;
+    return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
+  });
+  if (!sorted.length) {
+    container.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px">No sheets uploaded yet. Go to Upload to add drawing sheets.</div>';
+    return;
+  }
+  let html = '';
+  html += `<div class="schedule-header">
+    <span>Sheet #</span><span>Sheet Name</span><span>Discipline</span><span>Package</span><span>Status</span>
+  </div>`;
+  let lastDisc = '';
+  sorted.forEach(s => {
+    const disc = S.project.disciplines.find(d => d.prefix === s.discipline);
+    const discLabel = disc ? `${disc.prefix} — ${disc.name}` : (s.discipline || 'Unassigned');
+    if (discLabel !== lastDisc) {
+      html += `<div class="disc-separator">${escHtml(discLabel)}</div>`;
+      lastDisc = discLabel;
+    }
+    const pkg = S.project.packages.find(p => p.id === s.packageId);
+    const statusOptions = S.project.statuses.map(st =>
+      `<option value="${st.id}" ${s.statusId == st.id ? 'selected' : ''}>${st.id} – ${escHtml(st.name)}</option>`
+    ).join('');
+    html += `<div class="schedule-row">
+      <span class="mono" style="font-size:12px;font-weight:500">${escHtml(s.sheetNum)}</span>
+      <span style="font-size:13px">${escHtml(s.sheetName)}</span>
+      <span style="font-size:11px;color:var(--text3)">${escHtml(s.discipline||'—')}</span>
+      <span style="font-size:11px;color:var(--text2)">${escHtml(pkg ? pkg.name : '—')}</span>
+      <select class="status-select" onchange="setSheetStatus('${s.id}',this.value)">${statusOptions}</select>
+    </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function setSheetStatus(id, val) {
+  const s = S.project.sheets.find(x => x.id === id);
+  if (s) s.statusId = parseInt(val);
+  saveDB();
+}
+
+function addManualSheet() {
+  const pkgId = S.project.packages[0]?.id || null;
+  S.project.sheets.push({id:uid(), packageId:pkgId, sheetNum:'NEW-001', sheetName:'New Sheet', discipline:'', statusId:1, fileName:'manual'});
+  renderSchedule(); markDirty('status');
+}
+
+// ── EXPORTS ──────────────────────────────────────────────────
+function getScheduleData() {
+  const discOrder = {};
+  S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
+  return [...S.project.sheets].sort((a,b) => {
+    const da = discOrder[a.discipline] || 9999;
+    const db = discOrder[b.discipline] || 9999;
+    if (da !== db) return da - db;
+    return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
+  }).map(s => {
+    const disc = S.project.disciplines.find(d => d.prefix === s.discipline);
+    const pkg = S.project.packages.find(p => p.id === s.packageId);
+    const status = S.project.statuses.find(st => st.id === s.statusId);
+    return {
+      'Sheet Number': s.sheetNum,
+      'Sheet Name': s.sheetName,
+      'Discipline Prefix': s.discipline || '',
+      'Discipline Name': disc ? disc.name : '',
+      'Package': pkg ? pkg.name : '',
+      'Due Date': pkg ? pkg.due : '',
+      'Status ID': s.statusId || 1,
+      'Status': status ? status.name : 'Not for Construction',
+      'Project Number': S.project.num,
+      'Project Name': S.project.name,
+    };
+  });
+}
+
+function exportXLSX() {
+  const data = getScheduleData();
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
+  XLSX.writeFile(wb, `${S.project.num}_SheetIndex.xlsx`);
+}
+
+function exportCSV() {
+  const data = getScheduleData();
+  if (!data.length) return;
+  const headers = Object.keys(data[0]);
+  const rows = [headers, ...data.map(r => headers.map(h => `"${(r[h]||'').toString().replace(/"/g,'""')}"`))]
+  const csv = rows.map(r => r.join(',')).join('\n');
+  dl(csv, `${S.project.num}_SheetIndex.csv`, 'text/csv');
+}
+
+function exportRevit() {
+  // Tab-delimited format compatible with Revit schedule import add-ins
+  const data = getScheduleData();
+  if (!data.length) return;
+  const headers = ['Sheet Number','Sheet Name','Discipline Name','Package','Due Date','Status','Project Number'];
+  const rows = [headers.join('\t'), ...data.map(r => headers.map(h => r[h]||'').join('\t'))];
+  dl(rows.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
+}
+
+function exportJSON() {
+  const obj = {
+    project: {num:S.project.num, name:S.project.name, country:S.project.country, state:S.project.state, city:S.project.city, zip:S.project.zip},
+    disciplines: S.project.disciplines,
+    packages: S.project.packages.map(p => ({id:p.id, name:p.name, abbr:p.abbr, due:p.due})),
+    statuses: S.project.statuses,
+    sheets: getScheduleData(),
+    exported: new Date().toISOString()
+  };
+  dl(JSON.stringify(obj, null, 2), `${S.project.num}_SheetIndex.json`, 'application/json');
+}
+
+function printSchedule() {
+  const data = getScheduleData();
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Sheet Index — ${S.project.num}</title>
+  <style>
+    body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
+    h1{font-size:16px;margin-bottom:4px}
+    h2{font-size:12px;color:#666;margin-bottom:16px;font-weight:normal}
+    p{font-size:11px;color:#888;margin-bottom:16px}
+    table{border-collapse:collapse;width:100%;margin-top:12px}
+    th{text-align:left;padding:5px 8px;background:#f0f0ee;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid #ccc}
+    td{padding:5px 8px;border-bottom:1px solid #eee}
+    .disc-head{padding:5px 8px;background:#e8e8e4;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #ccc}
+    @media print{@page{margin:15mm 10mm}}
+  </style></head><body>
+  <h1>Sheet Index — ${escHtmlRaw(S.project.name)}</h1>
+  <h2>Project No. ${escHtmlRaw(S.project.num)} &nbsp;·&nbsp; ${escHtmlRaw(S.project.city||'')}${S.project.state?', '+escHtmlRaw(S.project.state):''}</h2>
+  <p>Generated ${new Date().toLocaleString()}</p>
+  <table><thead><tr><th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Package</th><th>Due Date</th><th>Status</th></tr></thead><tbody>`;
+  let lastDisc = '';
+  data.forEach(r => {
+    if (r['Discipline Name'] !== lastDisc) {
+      html += `<tr><td colspan="6" class="disc-head">${escHtmlRaw(r['Discipline Name']||'Unassigned')}</td></tr>`;
+      lastDisc = r['Discipline Name'];
+    }
+    html += `<tr><td>${escHtmlRaw(r['Sheet Number'])}</td><td>${escHtmlRaw(r['Sheet Name'])}</td><td>${escHtmlRaw(r['Discipline Prefix'])}</td><td>${escHtmlRaw(r['Package'])}</td><td>${escHtmlRaw(r['Due Date'])}</td><td>${escHtmlRaw(r['Status'])}</td></tr>`;
+  });
+  html += `</tbody></table></body></html>`;
+  const w = window.open('','_blank');
+  w.document.write(html); w.document.close(); w.print();
+}
+
+function dl(content, filename, type) {
+  const blob = new Blob([content], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ================================================================
+// UTILITY
+// ================================================================
+function setAlert(elId, msg, type) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = msg ? `<div class="alert alert-${type||'info'}">${msg}</div>` : '';
+}
+
+function escHtml(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escHtmlRaw(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ================================================================
+// DEMO SEED
+// ================================================================
+if (!DB.users.length) {
+  DB.users.push({id:'demo', name:'Demo Architect', email:'demo@firm.com', pass:'stadium1', created:Date.now()});
+  saveDB();
+}
+
+/*
+  README
+  ──────
+  SheetIndex — Construction Document Sheet Index Manager
+  Version 1.0 · Self-contained single-file HTML application
+
+  SETUP
+  Open index.html in any modern browser. No server required.
+  Data is persisted to browser localStorage.
+
+  DEMO CREDENTIALS
+  Email:    demo@firm.com
+  Password: stadium1
+
+  WORKFLOW
+  1. Login  — create an account or use demo credentials
+  2. Project — name project, select country, auto-generate project number (CC.YYMMDD.hhmm)
+  3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
+  4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
+  5. Upload — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
+              manually correct any fields in the inline table
+  6. Status / Export — sort schedule by discipline, assign statuses, export to:
+              XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
+
+  REVIT EXPORT
+  The tab-delimited export produces: Sheet Number, Sheet Name, Discipline Name,
+  Package, Due Date, Status, Project Number — standard fields for Revit schedule
+  import add-ins.
+
+  NOTES
+  - Project number uniqueness is enforced per browser localStorage scope
+  - PDF extraction uses regex pattern matching on title block text;
+    results may require manual correction for non-standard title blocks
+  - All navigation changes on dirty (unsaved) steps trigger a save/discard modal
+  - Country codes follow ISO 3166-1 alpha-2 (XX = unknown/other)
+*/
+</script>
+</body>
+</html>
