@@ -120,12 +120,16 @@ h1,h2,h3,h4{font-family:var(--display)}
 .view{display:none;flex:1;flex-direction:column;min-height:100%}
 .view.active{display:flex}
 .view-header{
-  padding:28px 36px 20px;
+  padding:24px 36px 20px;
   border-bottom:1px solid var(--border);
   background:var(--surface);
+  flex-shrink:0;
 }
-.view-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;color:var(--text);font-family:var(--display)}
-.view-sub{font-size:13px;color:var(--text3);margin-top:3px}
+.view-header > div:first-child{
+  display:flex;flex-direction:column;gap:0;
+}
+.view-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;color:var(--text);font-family:var(--display);line-height:1.25;margin-bottom:5px}
+.view-sub{font-size:13px;color:var(--text3);line-height:1.45;margin-top:0}
 .view-body{padding:28px 36px;flex:1}
 .view-footer{
   padding:16px 36px;
@@ -681,7 +685,8 @@ let S = {
   project: null,
   dirty: {},
   pendingNav: null,
-  _uploadPkgId: null
+  _uploadPkgId: null,
+  _selectedSheets: new Set()
 };
 
 const DEFAULT_DISCIPLINES = [
@@ -772,7 +777,7 @@ function goTo(step) {
   });
   if (step === 'disciplines' && S.project) renderDisciplines();
   if (step === 'packages' && S.project) renderPackages();
-  if (step === 'upload' && S.project) renderFileList();
+  if (step === 'upload' && S.project) { S._selectedSheets = new Set(); renderFileList(); }
   if (step === 'status' && S.project) { renderStatusDefs(); renderSchedule(); }
 }
 
@@ -1327,18 +1332,35 @@ function renderFileList() {
   const el = document.getElementById('file-list');
   if (!sheets.length) { el.innerHTML = ''; return; }
   const pkg = S.project.packages.find(p => p.id === pkgId);
-  const discOpts = S.project.disciplines
-    .sort((a,b) => a.order.localeCompare(b.order,'en',{numeric:true}))
-    .map(d => `<option value="${d.prefix}">${d.prefix} — ${escHtml(d.name)}</option>`).join('');
+
+  // Preserve existing selection set; prune ids that no longer exist
+  const existingIds = new Set(sheets.map(s => s.id));
+  S._selectedSheets = (S._selectedSheets || new Set());
+  for (const id of [...S._selectedSheets]) { if (!existingIds.has(id)) S._selectedSheets.delete(id); }
+
+  const selCount = S._selectedSheets.size;
+
   el.innerHTML = `
-    <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:10px">
-      ${pkg ? escHtml(pkg.name) : ''} — ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">
+        ${pkg ? escHtml(pkg.name) : ''} — ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}
+        ${selCount ? `<span style="font-weight:400;color:var(--text3);font-size:11px;margin-left:8px">(${selCount} selected)</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm" onclick="selectAllSheets()" title="Select all sheets">Select All</button>
+        <button class="btn btn-sm" onclick="selectNoneSheets()" title="Deselect all sheets">Select None</button>
+        <button class="btn btn-sm btn-danger" onclick="clearSelectedSheets()" ${selCount === 0 ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''} title="Remove selected sheets">Clear${selCount ? ' ('+selCount+')' : ''}</button>
+      </div>
     </div>
     <table class="data-table">
-      <thead><tr><th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Source File</th><th>Delete</th></tr></thead>
+      <thead><tr>
+        <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
+        <th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Source File</th><th>Delete</th>
+      </tr></thead>
       <tbody>
         ${sheets.map(s => `
-          <tr>
+          <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
+            <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
             <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
@@ -1354,6 +1376,54 @@ function renderFileList() {
       </tbody>
     </table>
   `;
+}
+
+function toggleSheetSel(id, checked) {
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) S._selectedSheets.add(id);
+  else S._selectedSheets.delete(id);
+  renderFileList();
+}
+
+function toggleSelectAllSheets(checked) {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) sheets.forEach(s => S._selectedSheets.add(s.id));
+  else S._selectedSheets.clear();
+  renderFileList();
+}
+
+function selectAllSheets() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = new Set(sheets.map(s => s.id));
+  renderFileList();
+}
+
+function selectNoneSheets() {
+  S._selectedSheets = new Set();
+  renderFileList();
+}
+
+function clearSelectedSheets() {
+  const sel = S._selectedSheets;
+  if (!sel || sel.size === 0) return;
+  const count = sel.size;
+  showModal(
+    'Remove Selected Sheets',
+    `Remove ${count} selected sheet${count !== 1 ? 's' : ''} from the index? This cannot be undone.`,
+    [
+      {label:`Remove ${count} sheet${count !== 1 ? 's' : ''}`, primary:true, action:()=>{
+        S.project.sheets = S.project.sheets.filter(s => !sel.has(s.id));
+        S._selectedSheets = new Set();
+        renderFileList();
+        markDirty('upload');
+        closeModal();
+      }},
+      {label:'Cancel', action:closeModal}
+    ]
+  );
 }
 
 function updateSheet(id, field, val) {
