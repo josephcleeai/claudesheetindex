@@ -93,6 +93,27 @@ h1,h2,h3,h4{font-family:var(--display)}
   padding:6px 12px 10px;font-size:11px;font-family:var(--mono);
   color:rgba(255,255,255,0.4);word-break:break-all;
 }
+.active-proj-pill{
+  display:none;align-items:center;gap:7px;
+  padding:4px 10px 4px 8px;border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--surface);
+  font-size:11px;line-height:1.35;max-width:260px;min-width:0;
+  flex-shrink:0;
+}
+.active-proj-pill.visible{display:inline-flex}
+.active-proj-pill-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);flex-shrink:0;
+}
+.active-proj-pill-num{
+  font-family:var(--mono);color:var(--text2);white-space:nowrap;flex-shrink:0;
+}
+.active-proj-pill-sep{color:var(--border2);flex-shrink:0}
+.active-proj-pill-name{
+  color:var(--text);font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-family:var(--display);
+}
 
 /* Main content */
 #main{flex:1;overflow-y:auto;display:flex;flex-direction:column;background:var(--bg)}
@@ -388,9 +409,17 @@ select.status-select{
 
 <!-- VIEW 2: PROJECT -->
 <div id="view-project" class="view">
-  <div class="view-header">
-    <div class="view-title">Projects</div>
-    <div class="view-sub">Define project identity and generate a unique project number.</div>
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Projects</div>
+      <div class="view-sub">Define project identity and generate a unique project number.</div>
+    </div>
+    <div id="pill-project" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-project-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-project-name"></span>
+    </div>
   </div>
   <div class="view-body">
     <div style="display:flex;gap:28px;align-items:flex-start">
@@ -469,9 +498,17 @@ select.status-select{
 
 <!-- VIEW 3: DISCIPLINES -->
 <div id="view-disciplines" class="view">
-  <div class="view-header">
-    <div class="view-title">Disciplines</div>
-    <div class="view-sub">Define discipline order, names, and sheet number prefixes. Prefixes must be unique.</div>
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Disciplines</div>
+      <div class="view-sub">Define discipline order, names, and sheet number prefixes. Prefixes must be unique.</div>
+    </div>
+    <div id="pill-disciplines" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-disciplines-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-disciplines-name"></span>
+    </div>
   </div>
   <div class="view-body">
     <div id="disc-alert"></div>
@@ -504,9 +541,17 @@ select.status-select{
 
 <!-- VIEW 4: PACKAGES -->
 <div id="view-packages" class="view">
-  <div class="view-header">
-    <div class="view-title">Project Packages</div>
-    <div class="view-sub">Define submission packages with due dates and upload drawing sets.</div>
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Project Packages</div>
+      <div class="view-sub">Define submission packages with due dates and upload drawing sets.</div>
+    </div>
+    <div id="pill-packages" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-packages-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-packages-name"></span>
+    </div>
   </div>
   <div class="view-body">
     <div id="pkg-alert"></div>
@@ -526,9 +571,17 @@ select.status-select{
 
 <!-- VIEW 5: UPLOAD -->
 <div id="view-upload" class="view">
-  <div class="view-header">
-    <div class="view-title">Upload Drawing Files</div>
-    <div class="view-sub">Select or drag individual PDF sheets or a combined drawing set.</div>
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Upload Drawing Files</div>
+      <div class="view-sub">Select or drag individual PDF sheets or a combined drawing set.</div>
+    </div>
+    <div id="pill-upload" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-upload-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-upload-name"></span>
+    </div>
   </div>
   <div class="view-body">
     <div id="upload-alert"></div>
@@ -562,9 +615,17 @@ select.status-select{
 
 <!-- VIEW 6: STATUS / EXPORT -->
 <div id="view-status" class="view">
-  <div class="view-header">
-    <div class="view-title">Sheet Schedule</div>
-    <div class="view-sub">Preview, set status, and export the complete sheet index.</div>
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Sheet Schedule</div>
+      <div class="view-sub">Preview, set status, and export the complete sheet index.</div>
+    </div>
+    <div id="pill-status" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-status-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-status-name"></span>
+    </div>
   </div>
   <div class="view-body">
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px">
@@ -754,6 +815,7 @@ function doLogout() {
     if (n.dataset.step !== 'login') n.classList.add('locked');
   });
   document.getElementById('project-info').style.display = 'none';
+  updateActiveProjPills();
   goTo('login');
 }
 
@@ -764,6 +826,25 @@ function tryExit() {
 }
 
 function markDirty(step) { S.dirty[step] = true; }
+
+// ── ACTIVE PROJECT PILL ───────────────────────────────────────────
+const PILL_STEPS = ['project','disciplines','packages','upload','status'];
+function updateActiveProjPills() {
+  const hasProj = !!(S.project && S.project.num);
+  const num  = hasProj ? (S.project.num  || '') : '';
+  const name = hasProj ? (S.project.name || '') : '';
+  PILL_STEPS.forEach(step => {
+    const pill = document.getElementById('pill-' + step);
+    if (!pill) return;
+    if (hasProj) {
+      document.getElementById('pill-' + step + '-num').textContent  = num;
+      document.getElementById('pill-' + step + '-name').textContent = name;
+      pill.classList.add('visible');
+    } else {
+      pill.classList.remove('visible');
+    }
+  });
+}
 
 // ================================================================
 // MODAL
@@ -922,6 +1003,7 @@ function saveProject(silent) {
   document.getElementById('proj-badge').textContent = num;
   unlockUpTo('disciplines');
   renderSavedProjects();
+  updateActiveProjPills();
   if (!silent) setAlert('proj-alert', 'Project saved.', 'success');
   return true;
 }
@@ -971,7 +1053,8 @@ function loadProject(id) {
     unlockUpTo('disciplines');
     setAlert('proj-alert', `Project "${escHtml(p.num)}" loaded.`, 'success');
     renderSavedProjects();
-    goTo('project');
+    updateActiveProjPills();
+    goTo('disciplines');
   }
   if (S.dirty[curStep]) {
     showModal('Unsaved Changes',
@@ -998,6 +1081,7 @@ function confirmDeleteProject(id) {
           S.project = null;
           initProject();
           document.getElementById('proj-badge').textContent = S.user ? S.user.email : '';
+          updateActiveProjPills();
           document.querySelectorAll('.nav-item[data-step]').forEach(n => {
             if (!['login','project'].includes(n.dataset.step)) n.classList.add('locked');
           });
