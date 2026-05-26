@@ -578,7 +578,7 @@ select.status-select{
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Upload Drawing Files</div>
-      <div class="view-sub">Select or drag individual PDF sheets or a combined drawing set.</div>
+      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101_Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
     </div>
     <div id="pill-upload" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -597,7 +597,7 @@ select.status-select{
         <polyline points="9 15 12 12 15 15"/>
       </svg>
       <div class="drop-title">Drop PDF files here</div>
-      <div class="drop-sub">Or click to browse · Supports combined or individual sheet PDFs</div>
+      <div class="drop-sub">Or click to browse · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101_Floor Plan.pdf</span> to auto-assign disciplines</div>
     </div>
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div id="file-list" style="margin-top:18px"></div>
@@ -1257,19 +1257,39 @@ async function handleFiles(files) {
   const progressEl = document.getElementById('extraction-progress');
   const bar = document.getElementById('ext-bar');
   progressEl.style.display = '';
+  let autoAssigned = 0;
   for (let i = 0; i < files.length; i++) {
     bar.style.width = Math.round((i / files.length) * 100) + '%';
     const file = files[i];
     if (file.type !== 'application/pdf') continue;
-    const extracted = await extractFromPDF(file);
-    for (const sheet of extracted) {
-      const existing = S.project.sheets.find(s => s.sheetNum === sheet.sheetNum && s.packageId === pkgId);
+
+    // --- Step 1: Parse metadata from filename (underscore convention) ---
+    const fnParsed = parseSheetFromFilename(file.name);
+    const fnHasUnderscore = file.name.replace(/\.pdf$/i,'').indexOf('_') > 0;
+
+    // --- Step 2: Attempt PDF text extraction ---
+    let extracted = [];
+    try { extracted = await extractFromPDF(file); } catch(e) { /* fall through */ }
+
+    // For each extracted page, prefer filename data when file uses underscore convention
+    const pages = extracted.length ? extracted : [fnParsed];
+    for (const sheet of pages) {
+      // If filename follows underscore convention, override sheetNum + sheetName with filename parse
+      const sheetNum  = fnHasUnderscore ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
+      const sheetName = fnHasUnderscore ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
+
+      // --- Step 3: Auto-assign discipline by matching prefix to Level 3 disciplines ---
+      const discipline = guessDiscipline(sheetNum);
+      if (discipline) autoAssigned++;
+
+      const existing = S.project.sheets.find(s => s.sheetNum === sheetNum && s.packageId === pkgId);
       if (!existing) {
         S.project.sheets.push({
           id: uid(), packageId: pkgId,
-          sheetNum: sheet.sheetNum, sheetName: sheet.sheetName,
+          sheetNum, sheetName,
           fileName: file.name, statusId: 1,
-          discipline: guessDiscipline(sheet.sheetNum)
+          discipline,
+          _autoDisc: !!discipline   // flag for UI indicator
         });
       }
     }
@@ -1278,6 +1298,11 @@ async function handleFiles(files) {
   setTimeout(() => progressEl.style.display = 'none', 600);
   markDirty('upload');
   renderFileList();
+  if (autoAssigned > 0) {
+    setAlert('upload-alert',
+      `${autoAssigned} sheet${autoAssigned !== 1 ? 's' : ''} auto-assigned to disciplines based on filename prefix.`,
+      'success');
+  }
 }
 
 async function extractFromPDF(file) {
@@ -1313,16 +1338,34 @@ function parseSheetFromText(text, filename, pageNum) {
 }
 
 function parseSheetFromFilename(fname, pageNum=1) {
-  const base = fname.replace(/\.pdf$/i,'').replace(/[_-]/g,' ');
-  const m = base.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
-  if (m) return {sheetNum: m[1].toUpperCase(), sheetName: m[2]};
-  return {sheetNum: 'SH-' + pageNum, sheetName: base.slice(0,50) || 'Untitled Sheet'};
+  const base = fname.replace(/\.pdf$/i,'');
+
+  // PRIMARY: split on first underscore — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const uIdx = base.indexOf('_');
+  if (uIdx > 0) {
+    const sheetNum = base.slice(0, uIdx).trim().toUpperCase();
+    const sheetName = base.slice(uIdx + 1).replace(/_/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // FALLBACK: collapse separators and match standard prefix+number pattern
+  const clean = base.replace(/[_-]/g, ' ');
+  const m = clean.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
+  if (m) return { sheetNum: m[1].toUpperCase(), sheetName: m[2], _fromFilename: true };
+
+  return { sheetNum: 'SH-' + pageNum, sheetName: clean.slice(0, 50) || 'Untitled Sheet', _fromFilename: true };
 }
 
 function guessDiscipline(sheetNum) {
   if (!S.project) return '';
-  const prefix = sheetNum.replace(/\d.*$/,'').toUpperCase();
-  const disc = S.project.disciplines.find(d => d.prefix === prefix);
+  // Extract the alphabetic prefix (letters before the first digit)
+  const letterPrefix = sheetNum.replace(/\d.*$/, '').toUpperCase();
+  if (!letterPrefix) return '';
+
+  // Sort disciplines by prefix length descending so longer prefixes match first
+  // e.g. "STD" matches before "ST" and "S" when sheet num starts with "STD"
+  const sorted = [...S.project.disciplines].sort((a, b) => b.prefix.length - a.prefix.length);
+  const disc = sorted.find(d => letterPrefix === d.prefix || letterPrefix.startsWith(d.prefix));
   return disc ? disc.prefix : '';
 }
 
@@ -1364,10 +1407,13 @@ function renderFileList() {
             <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
-              <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px">
-                <option value="">— unassigned —</option>
-                ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${d.prefix} — ${escHtml(d.name)}</option>`).join('')}
-              </select>
+              <div style="display:flex;align-items:center;gap:5px">
+                <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
+                  <option value="">— unassigned —</option>
+                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${d.prefix} — ${escHtml(d.name)}</option>`).join('')}
+                </select>
+                ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
+              </div>
             </td>
             <td style="color:var(--text3);font-size:11px;font-family:var(--mono)">${escHtml(s.fileName||'—')}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
@@ -1428,7 +1474,12 @@ function clearSelectedSheets() {
 
 function updateSheet(id, field, val) {
   const s = S.project.sheets.find(x => x.id === id);
-  if (s) { s[field] = val; markDirty('upload'); }
+  if (s) {
+    s[field] = val;
+    // If user manually changes discipline, clear the auto-assign indicator
+    if (field === 'discipline') s._autoDisc = false;
+    markDirty('upload');
+  }
 }
 
 function deleteSheet(id) {
