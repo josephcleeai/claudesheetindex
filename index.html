@@ -120,12 +120,16 @@ h1,h2,h3,h4{font-family:var(--display)}
 .view{display:none;flex:1;flex-direction:column;min-height:100%}
 .view.active{display:flex}
 .view-header{
-  padding:28px 36px 20px;
+  padding:24px 36px 20px;
   border-bottom:1px solid var(--border);
   background:var(--surface);
+  flex-shrink:0;
 }
-.view-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;color:var(--text);font-family:var(--display)}
-.view-sub{font-size:13px;color:var(--text3);margin-top:3px}
+.view-header > div:first-child{
+  display:flex;flex-direction:column;gap:0;
+}
+.view-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;color:var(--text);font-family:var(--display);line-height:1.25;margin-bottom:5px}
+.view-sub{font-size:13px;color:var(--text3);line-height:1.45;margin-top:0}
 .view-body{padding:28px 36px;flex:1}
 .view-footer{
   padding:16px 36px;
@@ -598,11 +602,9 @@ select.status-select{
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div id="file-list" style="margin-top:18px"></div>
     <div id="extraction-progress" style="display:none;margin-top:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div style="font-size:12px;color:var(--text2)" id="ext-label">Extracting sheet data...</div>
-      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Extracting sheet data...</div>
       <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
-        <div id="ext-bar" style="height:100%;background:var(--accent);width:0%;transition:width .25s"></div>
+        <div id="ext-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s"></div>
       </div>
     </div>
   </div>
@@ -683,7 +685,8 @@ let S = {
   project: null,
   dirty: {},
   pendingNav: null,
-  _uploadPkgId: null
+  _uploadPkgId: null,
+  _selectedSheets: new Set()
 };
 
 const DEFAULT_DISCIPLINES = [
@@ -774,7 +777,7 @@ function goTo(step) {
   });
   if (step === 'disciplines' && S.project) renderDisciplines();
   if (step === 'packages' && S.project) renderPackages();
-  if (step === 'upload' && S.project) renderFileList();
+  if (step === 'upload' && S.project) { S._selectedSheets = new Set(); renderFileList(); }
   if (step === 'status' && S.project) { renderStatusDefs(); renderSchedule(); }
 }
 
@@ -1253,262 +1256,74 @@ async function handleFiles(files) {
   if (!pkgId) { setAlert('upload-alert', 'Please select a package first in the Packages step.', 'danger'); return; }
   const progressEl = document.getElementById('extraction-progress');
   const bar = document.getElementById('ext-bar');
-  const label = document.getElementById('ext-label');
   progressEl.style.display = '';
-
-  let added = 0, skipped = 0, total = 0;
-  const pdfFiles = Array.from(files).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-  total = pdfFiles.length;
-
-  for (let i = 0; i < pdfFiles.length; i++) {
-    if (label) label.textContent = `Processing ${i + 1} of ${total}: ${pdfFiles[i].name}`;
-    bar.style.width = Math.round(((i) / total) * 100) + '%';
-    const file = pdfFiles[i];
+  for (let i = 0; i < files.length; i++) {
+    bar.style.width = Math.round((i / files.length) * 100) + '%';
+    const file = files[i];
+    if (file.type !== 'application/pdf') continue;
     const extracted = await extractFromPDF(file);
     for (const sheet of extracted) {
       const existing = S.project.sheets.find(s => s.sheetNum === sheet.sheetNum && s.packageId === pkgId);
       if (!existing) {
         S.project.sheets.push({
           id: uid(), packageId: pkgId,
-          sheetNum: sheet.sheetNum,
-          sheetName: sheet.sheetName,
-          fileName: file.name,
-          extractSource: sheet.source || 'unknown',
-          statusId: 1,
+          sheetNum: sheet.sheetNum, sheetName: sheet.sheetName,
+          fileName: file.name, statusId: 1,
           discipline: guessDiscipline(sheet.sheetNum)
         });
-        added++;
-      } else {
-        skipped++;
       }
     }
-    bar.style.width = Math.round(((i + 1) / total) * 100) + '%';
   }
-
-  setTimeout(() => progressEl.style.display = 'none', 800);
+  bar.style.width = '100%';
+  setTimeout(() => progressEl.style.display = 'none', 600);
   markDirty('upload');
   renderFileList();
-
-  if (total === 0) {
-    setAlert('upload-alert', 'No PDF files found in selection.', 'danger');
-  } else {
-    const parts = [`${added} sheet${added !== 1 ? 's' : ''} added`];
-    if (skipped) parts.push(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
-    setAlert('upload-alert', parts.join(' · ') + '.', 'success');
-  }
 }
 
-// ── FILENAME PARSING — primary extraction path ────────────────────
-// Handles the common AEC PDF naming conventions used in practice.
-// Returns { sheetNum, sheetName, source } where source is 'filename'|'pdf-text'|'fallback'.
-//
-// Supported patterns (examples):
-//   A-101 Floor Plan.pdf
-//   A101 - Floor Plan.pdf
-//   A-101_Floor_Plan.pdf
-//   ST-001_Seating Bowl Plan.pdf
-//   EP601 Electrical Power Plan Level 3.pdf
-//   ProjectName_A101_Floor Plan.pdf        ← project-prefix stripped
-//   US-260101-1234_A-101_Floor-Plan.pdf    ← project-num-prefix stripped
-//   20240101_A101_Floor Plan.pdf           ← date-prefix stripped
-//   A101.pdf                               ← number only, no name
-//   FP-101 - Sprinkler Plan - Level 01.pdf ← name may contain dashes
-//   C001_SITE_PLAN.pdf                     ← all-caps underscores
-//   X0-001 Cover Sheet.pdf
-//   SID-001 Site Development Plan.pdf
-
-// Sheet number token: 1-5 chars starting with a letter (e.g. A, FP, ST, X0, X1),
-// optional dash, 2-5 digits, optional .sub  →  A-101, FP-101, X0-001, SID-001, EP601
-const SHEET_NUM_RE = /^([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)$/;
-// Loose match for use inside broader patterns
-const SHEET_NUM_LOOSE = /([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)/;
-
-function parseSheetFromFilename(fname) {
-  // Strip extension
-  let base = fname.replace(/\.pdf$/i, '').trim();
-
-  // ── 1. Normalise: replace underscores with spaces, collapse whitespace ──
-  const norm = base.replace(/_/g, ' ').replace(/\s{2,}/g, ' ').trim();
-
-  // ── 2. Strip known leading noise tokens ──────────────────────────────
-  // a) Date prefix: 8-digit date  YYYYMMDD_ or YYMMDD_
-  let stripped = norm.replace(/^\d{6,8}\s+/, '');
-  // b) Project-number prefix: CC-YYMMDD-hhmm  or  similar  XX-NNNNNN-NNNN
-  stripped = stripped.replace(/^[A-Z]{2}-\d{6}-\d{4}\s+/i, '');
-  // c) Generic alphanumeric project prefix before the first recognised sheet token
-  //    e.g. "ProjectAlpha A101 Floor Plan" — strip everything before sheet token
-  //    Only strip if it's clearly a prefix (no dash between it and token)
-
-  // ── 3. Try to locate the sheet-number token inside the cleaned string ─
-  const result = extractNumAndName(stripped, fname);
-  if (result) return { ...result, source: 'filename' };
-
-  // ── 4. Last-resort fallback ───────────────────────────────────────────
-  return { sheetNum: 'SH-001', sheetName: norm.slice(0, 60) || 'Untitled Sheet', source: 'fallback' };
-}
-
-function extractNumAndName(text, originalFname) {
-  // Patterns tried in priority order:
-  const t = text.trim();
-
-  // P1: "A-101 - Sheet Name" or "X0-001 - Cover Sheet" (dash/en-dash separator)
-  let m = t.match(/^([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)\s*[-–—]\s*(.+)$/i);
-  if (m) return fmt(m[1], m[2]);
-
-  // P2: "A-101 Sheet Name" or "X0-001 Cover Sheet" (space separator)
-  m = t.match(/^([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)\s+(.+)$/i);
-  if (m) return fmt(m[1], m[2]);
-
-  // P3: "Sheet Name A-101" (number at end, unusual but seen)
-  m = t.match(/^(.+?)\s+([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)$/i);
-  if (m && SHEET_NUM_RE.test(m[2].toUpperCase())) return fmt(m[2], m[1]);
-
-  // P4: Sheet number only, no name — use filename base as name fallback
-  m = t.match(/^([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)$/i);
-  if (m) return { sheetNum: m[1].toUpperCase().replace(/\s+/g,''), sheetName: cleanName(originalFname.replace(/\.pdf$/i,'')) };
-
-  // P5: Sheet number appears mid-string after a non-token prefix
-  //     e.g. "StadiumProject A101 Floor Plan"
-  m = t.match(/(?:^|\s)([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)\s+(.+)$/i);
-  if (m) return fmt(m[1], m[2]);
-
-  return null;
-}
-
-function fmt(rawNum, rawName) {
-  const sheetNum = rawNum.toUpperCase().replace(/\s+/g,'');
-  const sheetName = cleanName(rawName);
-  return { sheetNum, sheetName };
-}
-
-function cleanName(s) {
-  return s
-    .replace(/[_]/g, ' ')           // underscores → spaces
-    .replace(/\s{2,}/g, ' ')        // collapse runs
-    .replace(/^[-–—\s]+|[-–—\s]+$/g, '') // trim leading/trailing dashes
-    .replace(/\b(\w)/g, c => c)     // preserve existing case (don't force-lower)
-    .trim()
-    .slice(0, 80);
-}
-
-// ── PDF TEXT EXTRACTION — secondary enrichment path ──────────────
 async function extractFromPDF(file) {
-  // Always run filename parse first — it's fast and reliable
-  const fromName = parseSheetFromFilename(file.name);
-
-  // If filename gave us a confident result (number + non-trivial name), use it directly
-  // for single-page PDFs or when PDF.js enrichment isn't needed
-  const hasGoodFilename = fromName.source === 'filename' &&
-    fromName.sheetNum !== 'SH-001' &&
-    fromName.sheetName.length > 3;
-
   try {
+    const arrayBuffer = await file.arrayBuffer();
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
     const results = [];
-
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
       const fullText = tc.items.map(i => i.str).join(' ');
-      const fromText = parseSheetFromText(fullText, file.name, p);
-
-      if (pdf.numPages === 1) {
-        // Single-page PDF: merge filename and text results, preferring the
-        // more specific/confident value for each field independently
-        const sheetNum = pickBestNum(fromName, fromText);
-        const sheetName = pickBestName(fromName, fromText, sheetNum);
-        results.push({ sheetNum, sheetName, source: fromText.source || fromName.source });
-      } else {
-        // Multi-page PDF: text extraction must identify each page individually;
-        // use filename only as a last resort for missing fields
-        const sheetNum = fromText.sheetNum !== ('SH-' + p) ? fromText.sheetNum
-                       : (p === 1 && hasGoodFilename) ? fromName.sheetNum
-                       : fromText.sheetNum;
-        const sheetName = fromText.sheetName && fromText.sheetName !== ('Sheet ' + p)
-                       ? fromText.sheetName
-                       : (p === 1 && hasGoodFilename) ? fromName.sheetName
-                       : fromText.sheetName;
-        results.push({ sheetNum, sheetName, source: fromText.source });
-      }
+      results.push(parseSheetFromText(fullText, file.name, p));
     }
     return results;
   } catch(e) {
-    // PDF.js unavailable or parse error — filename result is authoritative
-    return [fromName];
+    return [parseSheetFromFilename(file.name)];
   }
-}
-
-function pickBestNum(fromName, fromText) {
-  // Text wins if it found a real number; filename wins if text produced a fallback
-  if (fromText.sheetNum && !/^SH-/.test(fromText.sheetNum)) return fromText.sheetNum;
-  if (fromName.sheetNum && !/^SH-/.test(fromName.sheetNum)) return fromName.sheetNum;
-  return fromText.sheetNum || fromName.sheetNum || 'SH-001';
-}
-
-function pickBestName(fromName, fromText, resolvedNum) {
-  const textName = fromText.sheetName || '';
-  const fileName = fromName.sheetName || '';
-  // Text name wins if it's specific (longer, contains the sheet number context, or has proper words)
-  if (textName && textName.length >= 6 && !/^Sheet \d+$/.test(textName)) return textName;
-  if (fileName && fileName.length >= 4) return fileName;
-  return textName || fileName || 'Untitled Sheet';
 }
 
 function parseSheetFromText(text, filename, pageNum) {
-  // Title-block text patterns, tried in priority order
   const patterns = [
-    // "A-101 FLOOR PLAN" or "X0-001 Cover Sheet" or "A101 – Floor Plan" in title block
-    /\b([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)\s*[-–—]?\s+([A-Z][A-Z0-9\s,&\/\-]{3,70}?)(?=\s{2,}|$)/,
-    // "Sheet: A-101  Floor Plan" or "Sheet No. X0-001"
-    /Sheet(?:\s+No\.?)?[:\s]+([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)\s+([A-Z][A-Za-z0-9\s,&\/\-]{3,60})/i,
-    // "Drawing No: A-101"
-    /Drawing\s+No\.?\s*:?\s*([A-Z][A-Z0-9]{0,4}-?\d{2,5}(?:\.\d{1,2})?)/i,
-    // Fallback: any sheet-like token followed by words
-    /([A-Z][A-Z0-9]{0,4}-?\d{2,5})\s{1,3}([A-Z][A-Za-z\s]{4,50})/,
+    /\b([A-Z]{1,4}[-.]?\d{1,4}(?:\.\d{1,2})?)\s+[-–]?\s*([A-Z][A-Z\s,&\/\-]{3,50})/,
+    /Sheet[:\s]+([A-Z]{1,4}[-.]?\d{1,4})\s+([A-Z][A-Za-z\s,&\/\-]{3,50})/i,
+    /Drawing\s+No\.?\s*:?\s*([A-Z]{1,4}[-.]?\d{1,4})/i,
   ];
   for (const re of patterns) {
     const m = text.match(re);
-    if (m) {
-      const num = m[1].replace(/\s+/g,'').toUpperCase();
-      const name = (m[2]||'').trim().replace(/\s{2,}/g,' ').slice(0,80) || 'Sheet ' + pageNum;
-      return { sheetNum: num, sheetName: name, source: 'pdf-text' };
-    }
+    if (m) return {sheetNum: m[1].replace(/\s+/g,''), sheetName: (m[2]||'').trim().replace(/\s{2,}/g,' ').slice(0,60) || 'Sheet ' + pageNum};
   }
-  // PDF text gave nothing useful; return sentinel so caller can fall back to filename
-  return { sheetNum: 'SH-' + pageNum, sheetName: 'Sheet ' + pageNum, source: 'pdf-text-fallback' };
+  return parseSheetFromFilename(filename, pageNum);
+}
+
+function parseSheetFromFilename(fname, pageNum=1) {
+  const base = fname.replace(/\.pdf$/i,'').replace(/[_-]/g,' ');
+  const m = base.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
+  if (m) return {sheetNum: m[1].toUpperCase(), sheetName: m[2]};
+  return {sheetNum: 'SH-' + pageNum, sheetName: base.slice(0,50) || 'Untitled Sheet'};
 }
 
 function guessDiscipline(sheetNum) {
   if (!S.project) return '';
-  // Try to match the prefix portion — everything before the first digit run,
-  // supporting both "A101" (no dash) and "A-101" / "FP-101" (with dash).
-  const clean = sheetNum.toUpperCase().replace(/\s+/g,'');
-  // Longest-match first: sort disciplines by prefix length desc so "FP" beats "F"
-  const sorted = [...S.project.disciplines].sort((a,b) => b.prefix.length - a.prefix.length);
-  for (const d of sorted) {
-    const p = d.prefix.toUpperCase();
-    // Match prefix with optional dash: "A-101" → prefix "A", "FP-101" → prefix "FP"
-    const re = new RegExp('^' + p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '-?\\d');
-    if (re.test(clean)) return d.prefix;
-  }
-  return '';
-}
-
-// Maps extractSource values → display label + colour token for the source badge
-const SOURCE_META = {
-  'filename':           { label: 'filename',  color: 'var(--green)',   bg: 'var(--green-bg)',  border: '#C0DD97',   title: 'Extracted from PDF filename' },
-  'pdf-text':           { label: 'pdf text',  color: 'var(--blue)',    bg: 'var(--blue-bg)',   border: '#B5D4F4',   title: 'Extracted from PDF text content' },
-  'pdf-text-fallback':  { label: 'pdf text',  color: 'var(--blue)',    bg: 'var(--blue-bg)',   border: '#B5D4F4',   title: 'Extracted from PDF text content' },
-  'fallback':           { label: 'guessed',   color: 'var(--amber)',   bg: 'var(--amber-bg)',  border: '#FAC775',   title: 'Could not parse — review manually' },
-  'unknown':            { label: 'unknown',   color: 'var(--text3)',   bg: 'var(--surface2)',  border: 'var(--border)', title: 'Source unknown' },
-};
-
-function sourceBadge(src) {
-  const m = SOURCE_META[src] || SOURCE_META['unknown'];
-  return `<span title="${m.title}" style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-family:var(--mono);font-weight:500;color:${m.color};background:${m.bg};border:1px solid ${m.border};white-space:nowrap">${m.label}</span>`;
+  const prefix = sheetNum.replace(/\d.*$/,'').toUpperCase();
+  const disc = S.project.disciplines.find(d => d.prefix === prefix);
+  return disc ? disc.prefix : '';
 }
 
 function renderFileList() {
@@ -1518,56 +1333,97 @@ function renderFileList() {
   if (!sheets.length) { el.innerHTML = ''; return; }
   const pkg = S.project.packages.find(p => p.id === pkgId);
 
-  // Count by source type for summary strip
-  const srcCounts = {};
-  sheets.forEach(s => { const k = s.extractSource || 'unknown'; srcCounts[k] = (srcCounts[k]||0)+1; });
-  const needsReview = (srcCounts['fallback']||0) + (srcCounts['unknown']||0);
+  // Preserve existing selection set; prune ids that no longer exist
+  const existingIds = new Set(sheets.map(s => s.id));
+  S._selectedSheets = (S._selectedSheets || new Set());
+  for (const id of [...S._selectedSheets]) { if (!existingIds.has(id)) S._selectedSheets.delete(id); }
+
+  const selCount = S._selectedSheets.size;
 
   el.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">
         ${pkg ? escHtml(pkg.name) : ''} — ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}
+        ${selCount ? `<span style="font-weight:400;color:var(--text3);font-size:11px;margin-left:8px">(${selCount} selected)</span>` : ''}
       </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        ${Object.entries(srcCounts).map(([k,n]) => {
-          const m = SOURCE_META[k] || SOURCE_META['unknown'];
-          return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:3px;font-size:11px;font-family:var(--mono);color:${m.color};background:${m.bg};border:1px solid ${m.border}" title="${m.title}"><span style="font-weight:600">${n}</span> ${m.label}</span>`;
-        }).join('')}
-        ${needsReview ? `<span style="font-size:11px;color:var(--amber);font-family:var(--mono)" title="These rows may need manual correction">⚠ ${needsReview} need${needsReview!==1?'':'s'} review</span>` : ''}
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm" onclick="selectAllSheets()" title="Select all sheets">Select All</button>
+        <button class="btn btn-sm" onclick="selectNoneSheets()" title="Deselect all sheets">Select None</button>
+        <button class="btn btn-sm btn-danger" onclick="clearSelectedSheets()" ${selCount === 0 ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''} title="Remove selected sheets">Clear${selCount ? ' ('+selCount+')' : ''}</button>
       </div>
     </div>
-    <div style="overflow-x:auto">
     <table class="data-table">
       <thead><tr>
-        <th style="width:100px">Sheet #</th>
-        <th>Sheet Name</th>
-        <th style="width:160px">Discipline</th>
-        <th style="width:60px">Parsed</th>
-        <th style="width:200px">Source File</th>
-        <th style="width:52px">Delete</th>
+        <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
+        <th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Source File</th><th>Delete</th>
       </tr></thead>
       <tbody>
-        ${sheets.map(s => {
-          const isGuessed = !s.extractSource || s.extractSource === 'fallback' || s.extractSource === 'unknown';
-          return `
-          <tr style="${isGuessed ? 'background:#FFFBF2' : ''}">
-            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:88px"/></td>
+        ${sheets.map(s => `
+          <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
+            <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
+            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
-              <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;max-width:150px">
+              <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px">
                 <option value="">— unassigned —</option>
                 ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${d.prefix} — ${escHtml(d.name)}</option>`).join('')}
               </select>
             </td>
-            <td style="text-align:center">${sourceBadge(s.extractSource||'unknown')}</td>
-            <td style="color:var(--text3);font-size:11px;font-family:var(--mono);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(s.fileName||'')}">${escHtml(s.fileName||'—')}</td>
+            <td style="color:var(--text3);font-size:11px;font-family:var(--mono)">${escHtml(s.fileName||'—')}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
-          </tr>`;
-        }).join('')}
+          </tr>
+        `).join('')}
       </tbody>
     </table>
-    </div>
   `;
+}
+
+function toggleSheetSel(id, checked) {
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) S._selectedSheets.add(id);
+  else S._selectedSheets.delete(id);
+  renderFileList();
+}
+
+function toggleSelectAllSheets(checked) {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) sheets.forEach(s => S._selectedSheets.add(s.id));
+  else S._selectedSheets.clear();
+  renderFileList();
+}
+
+function selectAllSheets() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = new Set(sheets.map(s => s.id));
+  renderFileList();
+}
+
+function selectNoneSheets() {
+  S._selectedSheets = new Set();
+  renderFileList();
+}
+
+function clearSelectedSheets() {
+  const sel = S._selectedSheets;
+  if (!sel || sel.size === 0) return;
+  const count = sel.size;
+  showModal(
+    'Remove Selected Sheets',
+    `Remove ${count} selected sheet${count !== 1 ? 's' : ''} from the index? This cannot be undone.`,
+    [
+      {label:`Remove ${count} sheet${count !== 1 ? 's' : ''}`, primary:true, action:()=>{
+        S.project.sheets = S.project.sheets.filter(s => !sel.has(s.id));
+        S._selectedSheets = new Set();
+        renderFileList();
+        markDirty('upload');
+        closeModal();
+      }},
+      {label:'Cancel', action:closeModal}
+    ]
+  );
 }
 
 function updateSheet(id, field, val) {
@@ -1808,14 +1664,8 @@ if (!DB.users.length) {
   2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
   4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
-  5. Upload — drag-and-drop PDF files; sheet number and name are extracted from
-              the PDF file name first (filename-first strategy), then supplemented
-              by PDF.js text extraction from the title block. Supports patterns:
-                A-101 Floor Plan.pdf · A101 - Floor Plan.pdf · A101_Floor_Plan.pdf
-                ST-001 Seating Bowl Plan.pdf · EP601_Electrical Power Plan.pdf
-                ProjectPrefix_A-101_Floor-Plan.pdf · 20240101_A101_Floor Plan.pdf
-              Each row shows a colour-coded "parsed" badge (filename / pdf text / guessed).
-              Rows flagged "guessed" (amber) should be reviewed manually.
+  5. Upload — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
+              manually correct any fields in the inline table
   6. Status / Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
 
