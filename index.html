@@ -286,14 +286,14 @@ select.form-input{cursor:pointer}
 
 /* Sheet schedule preview */
 .schedule-header{
-  display:grid;grid-template-columns:110px 1fr 120px 140px 130px;
+  display:grid;
   gap:0;font-size:11px;font-weight:600;letter-spacing:0.4px;
   color:var(--text3);text-transform:uppercase;font-family:var(--display);
   padding:8px 12px;background:var(--surface2);border-radius:var(--radius) var(--radius) 0 0;
   border:1px solid var(--border);border-bottom:none;
 }
 .schedule-row{
-  display:grid;grid-template-columns:110px 1fr 120px 140px 130px;
+  display:grid;
   gap:0;padding:8px 12px;
   border:1px solid var(--border);border-top:none;
   font-size:13px;align-items:center;
@@ -578,7 +578,7 @@ select.status-select{
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Upload Drawing Files</div>
-      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101__Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
+      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101_Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
     </div>
     <div id="pill-upload" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -597,7 +597,7 @@ select.status-select{
         <polyline points="9 15 12 12 15 15"/>
       </svg>
       <div class="drop-title">Drop PDF files here</div>
-      <div class="drop-sub">Or click to browse · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
+      <div class="drop-sub">Or click to browse · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101_Floor Plan.pdf</span> to auto-assign disciplines</div>
     </div>
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div id="file-list" style="margin-top:18px"></div>
@@ -718,6 +718,8 @@ const DEFAULT_DISCIPLINES = [
   {order:'601',name:'Electrical Power',prefix:'EP'},
   {order:'610',name:'Electrical Lighting Demolition',prefix:'ELD'},
   {order:'611',name:'Electrical Lighting',prefix:'EL'},
+  {order:'620',name:'Electrical Demolition',prefix:'ED'},
+  {order:'621',name:'Electrical',prefix:'E'},
   {order:'640',name:'Technology Demolition',prefix:'TD'},
   {order:'641',name:'Technology',prefix:'T'},
   {order:'700',name:'Food Service Demolition',prefix:'FSD'},
@@ -1263,10 +1265,9 @@ async function handleFiles(files) {
     const file = files[i];
     if (file.type !== 'application/pdf') continue;
 
-    // --- Step 1: Parse metadata from filename (__ primary, -- secondary, _ tertiary) ---
+    // --- Step 1: Parse metadata from filename (underscore convention) ---
     const fnParsed = parseSheetFromFilename(file.name);
-    const baseName = file.name.replace(/\.pdf$/i,'');
-    const fnHasDelimiter = baseName.indexOf('__') > 0 || baseName.indexOf('--') > 0 || baseName.indexOf('_') > 0;
+    const fnHasUnderscore = file.name.replace(/\.pdf$/i,'').indexOf('_') > 0;
 
     // --- Step 2: Attempt PDF text extraction ---
     let extracted = [];
@@ -1275,9 +1276,9 @@ async function handleFiles(files) {
     // For each extracted page, prefer filename data when file uses underscore convention
     const pages = extracted.length ? extracted : [fnParsed];
     for (const sheet of pages) {
-      // If filename follows __ / -- / _ convention, override sheetNum + sheetName with filename parse
-      const sheetNum  = fnHasDelimiter ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
-      const sheetName = fnHasDelimiter ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
+      // If filename follows underscore convention, override sheetNum + sheetName with filename parse
+      const sheetNum  = fnHasUnderscore ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
+      const sheetName = fnHasUnderscore ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
 
       // --- Step 3: Auto-assign discipline by matching prefix to Level 3 disciplines ---
       const discipline = guessDiscipline(sheetNum);
@@ -1341,32 +1342,16 @@ function parseSheetFromText(text, filename, pageNum) {
 function parseSheetFromFilename(fname, pageNum=1) {
   const base = fname.replace(/\.pdf$/i,'');
 
-  // PRIMARY: split on first "__" — "A101__Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
-  const ddIdx = base.indexOf('__');
-  if (ddIdx > 0) {
-    const sheetNum  = base.slice(0, ddIdx).trim().toUpperCase();
-    const sheetName = base.slice(ddIdx + 2).replace(/__/g, ' ').trim();
-    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
-  }
-
-  // SECONDARY: split on first "--" — "A101--Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
-  const dmIdx = base.indexOf('--');
-  if (dmIdx > 0) {
-    const sheetNum  = base.slice(0, dmIdx).trim().toUpperCase();
-    const sheetName = base.slice(dmIdx + 2).replace(/--/g, ' ').trim();
-    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
-  }
-
-  // TERTIARY: split on first single "_" — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  // PRIMARY: split on first underscore — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
   const uIdx = base.indexOf('_');
   if (uIdx > 0) {
-    const sheetNum  = base.slice(0, uIdx).trim().toUpperCase();
+    const sheetNum = base.slice(0, uIdx).trim().toUpperCase();
     const sheetName = base.slice(uIdx + 1).replace(/_/g, ' ').trim();
     if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
   }
 
   // FALLBACK: collapse separators and match standard prefix+number pattern
-  const clean = base.replace(/[-_]/g, ' ');
+  const clean = base.replace(/[_-]/g, ' ');
   const m = clean.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
   if (m) return { sheetNum: m[1].toUpperCase(), sheetName: m[2], _fromFilename: true };
 
@@ -1386,7 +1371,25 @@ function guessDiscipline(sheetNum) {
   return disc ? disc.prefix : '';
 }
 
-function renderFileList() {
+function autoAssignAllDisciplines() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  let count = 0;
+  sheets.forEach(s => {
+    const disc = guessDiscipline(s.sheetNum);
+    if (disc && disc !== s.discipline) {
+      s.discipline = disc;
+      s._autoDisc = true;
+      count++;
+    }
+  });
+  markDirty('upload');
+  renderFileList();
+  if (count > 0) setAlert('upload-alert', `Auto-assigned ${count} sheet${count !== 1 ? 's' : ''} to disciplines.`, 'success');
+  else setAlert('upload-alert', 'All sheets already have matching disciplines — nothing changed.', 'info');
+}
+
+
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
   const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
   const el = document.getElementById('file-list');
@@ -1415,7 +1418,14 @@ function renderFileList() {
     <table class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
-        <th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Source File</th><th>Delete</th>
+        <th>Sheet #</th><th>Sheet Name</th>
+        <th>
+          <div style="display:flex;align-items:center;gap:6px">
+            Discipline
+            <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 7px;font-size:11px;font-family:var(--mono);white-space:nowrap">Auto Assign</button>
+          </div>
+        </th>
+        <th>Source File</th><th>Delete</th>
       </tr></thead>
       <tbody>
         ${sheets.map(s => `
@@ -1521,6 +1531,7 @@ function renderStatusDefs() {
   el.innerHTML = S.project.statuses.map(st => `
     <div style="display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px">
       <span class="badge badge-gray mono">${st.id}</span>
+      <span style="font-size:12px;font-family:var(--mono);color:var(--text3);margin-right:2px">${st.id} –</span>
       <input value="${escHtml(st.name)}" style="border:none;background:transparent;font-size:13px;color:var(--text);width:180px" onchange="updateStatus(${st.id},'name',this.value)"/>
     </div>
   `).join('');
@@ -1534,42 +1545,91 @@ function updateStatus(id, field, val) {
 function renderSchedule() {
   if (!S.project) return;
   const container = document.getElementById('schedule-container');
+  const packages = S.project.packages;
+
+  // Build discipline sort order
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
-  const sorted = [...S.project.sheets].sort((a,b) => {
-    const da = discOrder[a.discipline] || 9999;
-    const db = discOrder[b.discipline] || 9999;
-    if (da !== db) return da - db;
-    return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
-  });
-  if (!sorted.length) {
+
+  // Deduplicate: one canonical entry per sheetNum, preferring the first occurrence
+  // Collect all packages' status for a given sheet number
+  const sheetMap = new Map(); // sheetNum → {sheetNum, sheetName, discipline, pkgStatuses:{pkgId→sheetId}}
+  [...S.project.sheets]
+    .sort((a,b) => {
+      const da = discOrder[a.discipline] || 9999;
+      const db = discOrder[b.discipline] || 9999;
+      if (da !== db) return da - db;
+      return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
+    })
+    .forEach(s => {
+      if (!sheetMap.has(s.sheetNum)) {
+        sheetMap.set(s.sheetNum, {
+          sheetNum: s.sheetNum,
+          sheetName: s.sheetName,
+          discipline: s.discipline,
+          pkgStatuses: {}   // pkgId → sheet id (for status lookup)
+        });
+      }
+      // Record this package's sheet id for status assignment
+      sheetMap.get(s.sheetNum).pkgStatuses[s.packageId] = s.id;
+    });
+
+  const rows = [...sheetMap.values()];
+
+  if (!rows.length) {
     container.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px">No sheets uploaded yet. Go to Upload to add drawing sheets.</div>';
     return;
   }
-  let html = '';
-  html += `<div class="schedule-header">
-    <span>Sheet #</span><span>Sheet Name</span><span>Discipline</span><span>Package</span><span>Status</span>
+
+  // Dynamic column template: Sheet# | Sheet Name | Disc | [pkg status cols…]
+  const pkgColWidth = Math.max(110, Math.floor(160 / Math.max(packages.length,1))) + 'px';
+  const colTemplate = `110px 1fr 90px ${packages.map(() => pkgColWidth).join(' ')}`;
+
+  // Header
+  const pkgHeaders = packages.map(p =>
+    `<span title="${escHtml(p.name)} · Due ${escHtml(p.due)}" style="text-align:center;line-height:1.25;cursor:default">
+      <span style="display:block">${escHtml(p.abbr||p.name)}</span>
+      <span style="font-size:10px;font-weight:400;color:var(--text3);font-family:var(--mono)">${escHtml(p.due)}</span>
+    </span>`
+  ).join('');
+
+  let html = `<div class="schedule-header" style="grid-template-columns:${colTemplate}">
+    <span>Sheet #</span><span>Sheet Name</span><span>Disc</span>${pkgHeaders}
   </div>`;
+
   let lastDisc = '';
-  sorted.forEach(s => {
-    const disc = S.project.disciplines.find(d => d.prefix === s.discipline);
-    const discLabel = disc ? `${disc.prefix} — ${disc.name}` : (s.discipline || 'Unassigned');
+  rows.forEach(row => {
+    const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
+    const discLabel = disc ? `${disc.prefix} — ${disc.name}` : (row.discipline || 'Unassigned');
     if (discLabel !== lastDisc) {
-      html += `<div class="disc-separator">${escHtml(discLabel)}</div>`;
+      const colspan = 3 + packages.length;
+      html += `<div class="disc-separator" style="grid-column:1/-1">${escHtml(discLabel)}</div>`;
       lastDisc = discLabel;
     }
-    const pkg = S.project.packages.find(p => p.id === s.packageId);
-    const statusOptions = S.project.statuses.map(st =>
-      `<option value="${st.id}" ${s.statusId == st.id ? 'selected' : ''}>${st.id} – ${escHtml(st.name)}</option>`
-    ).join('');
-    html += `<div class="schedule-row">
-      <span class="mono" style="font-size:12px;font-weight:500">${escHtml(s.sheetNum)}</span>
-      <span style="font-size:13px">${escHtml(s.sheetName)}</span>
-      <span style="font-size:11px;color:var(--text3)">${escHtml(s.discipline||'—')}</span>
-      <span style="font-size:11px;color:var(--text2)">${escHtml(pkg ? pkg.name : '—')}</span>
-      <select class="status-select" onchange="setSheetStatus('${s.id}',this.value)">${statusOptions}</select>
+
+    // Status cells: one per package
+    const statusCells = packages.map(p => {
+      const sheetId = row.pkgStatuses[p.id];
+      if (!sheetId) {
+        // Sheet not in this package — show dash
+        return `<span style="text-align:center;display:block;color:var(--text3);font-size:12px">—</span>`;
+      }
+      const sheet = S.project.sheets.find(s => s.id === sheetId);
+      const statusId = sheet ? (sheet.statusId || 1) : 1;
+      const statusOptions = S.project.statuses.map(st =>
+        `<option value="${st.id}" ${statusId == st.id ? 'selected' : ''}>${st.id} – ${escHtml(st.name)}</option>`
+      ).join('');
+      return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)" style="width:100%">${statusOptions}</select>`;
+    }).join('');
+
+    html += `<div class="schedule-row" style="grid-template-columns:${colTemplate}">
+      <span class="mono" style="font-size:12px;font-weight:500">${escHtml(row.sheetNum)}</span>
+      <span style="font-size:13px">${escHtml(row.sheetName)}</span>
+      <span style="font-size:11px;color:var(--text3)">${escHtml(row.discipline||'—')}</span>
+      ${statusCells}
     </div>`;
   });
+
   container.innerHTML = html;
 }
 
@@ -1589,27 +1649,44 @@ function addManualSheet() {
 function getScheduleData() {
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
-  return [...S.project.sheets].sort((a,b) => {
-    const da = discOrder[a.discipline] || 9999;
-    const db = discOrder[b.discipline] || 9999;
-    if (da !== db) return da - db;
-    return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
-  }).map(s => {
-    const disc = S.project.disciplines.find(d => d.prefix === s.discipline);
-    const pkg = S.project.packages.find(p => p.id === s.packageId);
-    const status = S.project.statuses.find(st => st.id === s.statusId);
-    return {
-      'Sheet Number': s.sheetNum,
-      'Sheet Name': s.sheetName,
-      'Discipline Prefix': s.discipline || '',
-      'Discipline Name': disc ? disc.name : '',
-      'Package': pkg ? pkg.name : '',
-      'Due Date': pkg ? pkg.due : '',
-      'Status ID': s.statusId || 1,
-      'Status': status ? status.name : 'Not for Construction',
-      'Project Number': S.project.num,
-      'Project Name': S.project.name,
+  const packages = S.project.packages;
+
+  // Build deduplicated sheet map (same logic as renderSchedule)
+  const sheetMap = new Map();
+  [...S.project.sheets]
+    .sort((a,b) => {
+      const da = discOrder[a.discipline] || 9999;
+      const db = discOrder[b.discipline] || 9999;
+      if (da !== db) return da - db;
+      return a.sheetNum.localeCompare(b.sheetNum, 'en', {numeric:true});
+    })
+    .forEach(s => {
+      if (!sheetMap.has(s.sheetNum)) {
+        sheetMap.set(s.sheetNum, { ref: s, pkgStatuses: {} });
+      }
+      sheetMap.get(s.sheetNum).pkgStatuses[s.packageId] = s;
+    });
+
+  return [...sheetMap.values()].map(({ ref, pkgStatuses }) => {
+    const disc   = S.project.disciplines.find(d => d.prefix === ref.discipline);
+    const row = {
+      'Sheet Number':     ref.sheetNum,
+      'Sheet Name':       ref.sheetName,
+      'Discipline Prefix': ref.discipline || '',
+      'Discipline Name':  disc ? disc.name : '',
+      'Project Number':   S.project.num,
+      'Project Name':     S.project.name,
     };
+    // One status column per package
+    packages.forEach(p => {
+      const s = pkgStatuses[p.id];
+      const statusId = s ? (s.statusId || 1) : null;
+      const status = statusId ? S.project.statuses.find(st => st.id === statusId) : null;
+      const colBase = `${escHtmlRaw(p.abbr||p.name)} (${escHtmlRaw(p.due)})`;
+      row[`${colBase} – Status ID`]  = statusId != null ? statusId : '';
+      row[`${colBase} – Status`]     = status ? `${statusId} – ${status.name}` : (statusId != null ? String(statusId) : '');
+    });
+    return row;
   });
 }
 
@@ -1634,7 +1711,11 @@ function exportRevit() {
   // Tab-delimited format compatible with Revit schedule import add-ins
   const data = getScheduleData();
   if (!data.length) return;
-  const headers = ['Sheet Number','Sheet Name','Discipline Name','Package','Due Date','Status','Project Number'];
+  const packages = S.project.packages;
+  // Fixed Revit columns + one status col per package
+  const fixedHeaders = ['Sheet Number','Sheet Name','Discipline Name','Project Number'];
+  const pkgStatusCols = packages.map(p => `${p.abbr||p.name} (${p.due}) – Status`);
+  const headers = [...fixedHeaders, ...pkgStatusCols];
   const rows = [headers.join('\t'), ...data.map(r => headers.map(h => r[h]||'').join('\t'))];
   dl(rows.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
 }
@@ -1653,6 +1734,8 @@ function exportJSON() {
 
 function printSchedule() {
   const data = getScheduleData();
+  const packages = S.project.packages;
+  const pkgStatusCols = packages.map(p => `${escHtmlRaw(p.abbr||p.name)} (${escHtmlRaw(p.due)}) – Status`);
   let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Sheet Index — ${S.project.num}</title>
   <style>
     body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
@@ -1668,14 +1751,18 @@ function printSchedule() {
   <h1>Sheet Index — ${escHtmlRaw(S.project.name)}</h1>
   <h2>Project No. ${escHtmlRaw(S.project.num)} &nbsp;·&nbsp; ${escHtmlRaw(S.project.city||'')}${S.project.state?', '+escHtmlRaw(S.project.state):''}</h2>
   <p>Generated ${new Date().toLocaleString()}</p>
-  <table><thead><tr><th>Sheet #</th><th>Sheet Name</th><th>Discipline</th><th>Package</th><th>Due Date</th><th>Status</th></tr></thead><tbody>`;
+  <table><thead><tr>
+    <th>Sheet #</th><th>Sheet Name</th><th>Discipline</th>
+    ${pkgStatusCols.map(c=>`<th>${escHtmlRaw(c)}</th>`).join('')}
+  </tr></thead><tbody>`;
   let lastDisc = '';
+  const totalCols = 3 + packages.length;
   data.forEach(r => {
     if (r['Discipline Name'] !== lastDisc) {
-      html += `<tr><td colspan="6" class="disc-head">${escHtmlRaw(r['Discipline Name']||'Unassigned')}</td></tr>`;
+      html += `<tr><td colspan="${totalCols}" class="disc-head">${escHtmlRaw(r['Discipline Name']||'Unassigned')}</td></tr>`;
       lastDisc = r['Discipline Name'];
     }
-    html += `<tr><td>${escHtmlRaw(r['Sheet Number'])}</td><td>${escHtmlRaw(r['Sheet Name'])}</td><td>${escHtmlRaw(r['Discipline Prefix'])}</td><td>${escHtmlRaw(r['Package'])}</td><td>${escHtmlRaw(r['Due Date'])}</td><td>${escHtmlRaw(r['Status'])}</td></tr>`;
+    html += `<tr><td>${escHtmlRaw(r['Sheet Number'])}</td><td>${escHtmlRaw(r['Sheet Name'])}</td><td>${escHtmlRaw(r['Discipline Prefix'])}</td>${pkgStatusCols.map(c=>`<td>${escHtmlRaw(String(r[c]||'—'))}</td>`).join('')}</tr>`;
   });
   html += `</tbody></table></body></html>`;
   const w = window.open('','_blank');
