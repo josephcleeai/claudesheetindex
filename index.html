@@ -578,7 +578,7 @@ select.status-select{
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Upload Drawing Files</div>
-      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101_Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
+      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101__Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
     </div>
     <div id="pill-upload" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -597,7 +597,7 @@ select.status-select{
         <polyline points="9 15 12 12 15 15"/>
       </svg>
       <div class="drop-title">Drop PDF files here</div>
-      <div class="drop-sub">Or click to browse · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101_Floor Plan.pdf</span> to auto-assign disciplines</div>
+      <div class="drop-sub">Or click to browse · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
     </div>
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div id="file-list" style="margin-top:18px"></div>
@@ -1263,9 +1263,10 @@ async function handleFiles(files) {
     const file = files[i];
     if (file.type !== 'application/pdf') continue;
 
-    // --- Step 1: Parse metadata from filename (underscore convention) ---
+    // --- Step 1: Parse metadata from filename (__ primary, -- secondary, _ tertiary) ---
     const fnParsed = parseSheetFromFilename(file.name);
-    const fnHasUnderscore = file.name.replace(/\.pdf$/i,'').indexOf('_') > 0;
+    const baseName = file.name.replace(/\.pdf$/i,'');
+    const fnHasDelimiter = baseName.indexOf('__') > 0 || baseName.indexOf('--') > 0 || baseName.indexOf('_') > 0;
 
     // --- Step 2: Attempt PDF text extraction ---
     let extracted = [];
@@ -1274,9 +1275,9 @@ async function handleFiles(files) {
     // For each extracted page, prefer filename data when file uses underscore convention
     const pages = extracted.length ? extracted : [fnParsed];
     for (const sheet of pages) {
-      // If filename follows underscore convention, override sheetNum + sheetName with filename parse
-      const sheetNum  = fnHasUnderscore ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
-      const sheetName = fnHasUnderscore ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
+      // If filename follows __ / -- / _ convention, override sheetNum + sheetName with filename parse
+      const sheetNum  = fnHasDelimiter ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
+      const sheetName = fnHasDelimiter ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
 
       // --- Step 3: Auto-assign discipline by matching prefix to Level 3 disciplines ---
       const discipline = guessDiscipline(sheetNum);
@@ -1340,16 +1341,32 @@ function parseSheetFromText(text, filename, pageNum) {
 function parseSheetFromFilename(fname, pageNum=1) {
   const base = fname.replace(/\.pdf$/i,'');
 
-  // PRIMARY: split on first underscore — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  // PRIMARY: split on first "__" — "A101__Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const ddIdx = base.indexOf('__');
+  if (ddIdx > 0) {
+    const sheetNum  = base.slice(0, ddIdx).trim().toUpperCase();
+    const sheetName = base.slice(ddIdx + 2).replace(/__/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // SECONDARY: split on first "--" — "A101--Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const dmIdx = base.indexOf('--');
+  if (dmIdx > 0) {
+    const sheetNum  = base.slice(0, dmIdx).trim().toUpperCase();
+    const sheetName = base.slice(dmIdx + 2).replace(/--/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // TERTIARY: split on first single "_" — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
   const uIdx = base.indexOf('_');
   if (uIdx > 0) {
-    const sheetNum = base.slice(0, uIdx).trim().toUpperCase();
+    const sheetNum  = base.slice(0, uIdx).trim().toUpperCase();
     const sheetName = base.slice(uIdx + 1).replace(/_/g, ' ').trim();
     if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
   }
 
   // FALLBACK: collapse separators and match standard prefix+number pattern
-  const clean = base.replace(/[_-]/g, ' ');
+  const clean = base.replace(/[-_]/g, ' ');
   const m = clean.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
   if (m) return { sheetNum: m[1].toUpperCase(), sheetName: m[2], _fromFilename: true };
 
