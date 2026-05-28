@@ -310,6 +310,25 @@ select.status-select{
   font-size:12px;background:var(--surface);cursor:pointer;font-family:var(--sans);
   color:var(--text);
 }
+/* Schedule selection */
+.schedule-row.sched-selected{background:var(--blue-bg)!important}
+.schedule-row.sched-selected:hover{background:#dbeaf8!important}
+#sched-bulk-bar{
+  display:none;position:sticky;top:0;z-index:10;
+  background:var(--accent);color:#fff;
+  padding:8px 14px;border-radius:var(--radius);
+  align-items:center;gap:10px;flex-wrap:wrap;
+  margin-bottom:10px;font-size:13px;
+}
+#sched-bulk-bar.visible{display:flex}
+#sched-bulk-bar select{
+  padding:4px 8px;border-radius:var(--radius);
+  border:1px solid rgba(255,255,255,0.3);
+  background:rgba(255,255,255,0.12);color:#fff;
+  font-size:12px;font-family:var(--mono);cursor:pointer;
+}
+#sched-bulk-bar select option{background:#2D2926;color:#fff}
+.sched-sel-chk{cursor:pointer;accent-color:var(--blue)}
 </style>
 </head>
 <body>
@@ -643,7 +662,20 @@ select.status-select{
       <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase;margin-bottom:10px">Status Definitions</div>
       <div id="status-defs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
+    <div id="status-bulk-alert" style="margin-bottom:0"></div>
     <div id="schedule-container"></div>
+    <div id="sched-bulk-bar">
+      <span id="sched-sel-count" style="font-family:var(--mono);font-size:12px;opacity:0.85"></span>
+      <select id="sched-bulk-status" style="">
+        <option value="">— set status —</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+      <button class="btn btn-sm" onclick="applyBulkStatus()" style="background:rgba(255,255,255,0.15);border-color:rgba(255,255,255,0.3);color:#fff;font-size:12px">Apply to Selected</button>
+      <button class="btn btn-sm" onclick="clearSchedSel()" style="background:transparent;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.65);font-size:12px">Clear Selection</button>
+    </div>
     <div id="add-sheet-row" style="margin-top:12px">
       <button class="btn btn-sm" onclick="addManualSheet()">+ Add Sheet Manually</button>
     </div>
@@ -686,7 +718,8 @@ let S = {
   dirty: {},
   pendingNav: null,
   _uploadPkgId: null,
-  _selectedSheets: new Set()
+  _selectedSheets: new Set(),
+  _schedSel: new Set()       // selected sheetNums in Level 6 schedule
 };
 
 const DEFAULT_DISCIPLINES = [
@@ -780,7 +813,7 @@ function goTo(step) {
   if (step === 'disciplines' && S.project) renderDisciplines();
   if (step === 'packages' && S.project) renderPackages();
   if (step === 'upload' && S.project) { S._selectedSheets = new Set(); renderFileList(); }
-  if (step === 'status' && S.project) { renderStatusDefs(); renderSchedule(); }
+  if (step === 'status' && S.project) { S._schedSel = new Set(); renderStatusDefs(); renderSchedule(); }
 }
 
 function unlockUpTo(step) {
@@ -1572,7 +1605,6 @@ function renderSchedule() {
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
   // ── Deduplicate: one canonical row per sheetNum ─────────────
-  // Each row tracks which package-sheet-id covers that sheetNum
   const sheetMap = new Map(); // sheetNum → { sheetNum, sheetName, discipline, pkgMap: { pkgId → sheetId } }
   [...S.project.sheets]
     .sort((a, b) => {
@@ -1592,13 +1624,17 @@ function renderSchedule() {
 
   if (!rows.length) {
     container.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px">No sheets uploaded yet. Go to Upload to add drawing sheets.</div>';
+    _updateSchedBulkBar(0, rows.length);
     return;
   }
 
-  // Dynamic grid: Sheet# | Sheet Name | Disc | [one col per package]
-  // Each status col gets a fixed width; clamp so it doesn't blow out on many packages
-  const statusColW = Math.max(100, Math.min(150, Math.floor(420 / Math.max(packages.length, 1))));
-  const colTemplate = `90px 1fr 80px ${packages.map(() => statusColW + 'px').join(' ')}`;
+  // Prune stale selections
+  S._schedSel = new Set([...S._schedSel].filter(num => sheetMap.has(num)));
+
+  // Dynamic grid: ☐ | Sheet# | Sheet Name | Disc | [one col per package]
+  const statusColW  = Math.max(52, Math.min(80, Math.floor(320 / Math.max(packages.length, 1))));
+  const colTemplate = `28px 90px 1fr 80px ${packages.map(() => statusColW + 'px').join(' ')}`;
+  const allSelected = rows.length > 0 && S._schedSel.size === rows.length;
 
   // ── Header ───────────────────────────────────────────────────
   const pkgHeaderCells = packages.map(p => `
@@ -1608,6 +1644,7 @@ function renderSchedule() {
     </span>`).join('');
 
   let html = `<div class="schedule-header" style="grid-template-columns:${colTemplate}">
+    <span><input type="checkbox" class="sched-sel-chk" id="sched-chk-all" ${allSelected ? 'checked' : ''} onchange="toggleAllSchedSel(this.checked)" title="Select all"/></span>
     <span>Sheet #</span><span>Sheet Name</span><span>Disc</span>${pkgHeaderCells}
   </div>`;
 
@@ -1621,20 +1658,24 @@ function renderSchedule() {
       lastDisc = discLabel;
     }
 
+    const isSel = S._schedSel.has(row.sheetNum);
+
+    // Status cells: numeric-only select (1/2/3/4)
     const statusCells = packages.map(p => {
       const sheetId = row.pkgMap[p.id];
       if (!sheetId) {
         return `<span style="display:block;text-align:center;color:var(--text3);font-size:12px">—</span>`;
       }
-      const sheet     = S.project.sheets.find(s => s.id === sheetId);
-      const statusId  = sheet ? (sheet.statusId || 1) : 1;
-      const opts      = S.project.statuses.map(st =>
-        `<option value="${st.id}" ${statusId === st.id ? 'selected' : ''}>${st.id} – ${escHtml(st.name)}</option>`
+      const sheet    = S.project.sheets.find(s => s.id === sheetId);
+      const statusId = sheet ? (sheet.statusId || 1) : 1;
+      const opts     = [1,2,3,4].map(n =>
+        `<option value="${n}" ${statusId === n ? 'selected' : ''}>${n}</option>`
       ).join('');
-      return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)" style="width:100%">${opts}</select>`;
+      return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)" style="width:100%;text-align:center">${opts}</select>`;
     }).join('');
 
-    html += `<div class="schedule-row" style="grid-template-columns:${colTemplate}">
+    html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="grid-template-columns:${colTemplate}">
+      <span><input type="checkbox" class="sched-sel-chk" ${isSel ? 'checked' : ''} onchange="toggleSchedSel('${escHtml(row.sheetNum)}',this.checked)"/></span>
       <span class="mono" style="font-size:12px;font-weight:500">${escHtml(row.sheetNum)}</span>
       <span style="font-size:13px">${escHtml(row.sheetName)}</span>
       <span style="font-size:11px;color:var(--text3)">${escHtml(row.discipline || '—')}</span>
@@ -1643,12 +1684,82 @@ function renderSchedule() {
   });
 
   container.innerHTML = html;
+  _updateSchedBulkBar(S._schedSel.size, rows.length);
 }
 
 function setSheetStatus(id, val) {
   const s = S.project.sheets.find(x => x.id === id);
   if (s) s.statusId = parseInt(val);
   saveDB();
+}
+
+// ── Schedule row selection & bulk status ──────────────────────
+function toggleSchedSel(sheetNum, checked) {
+  S._schedSel = S._schedSel || new Set();
+  if (checked) S._schedSel.add(sheetNum);
+  else S._schedSel.delete(sheetNum);
+  // Update row highlight and header checkbox without full re-render
+  const row = document.querySelector(`.schedule-row[data-sheetnum="${CSS.escape(sheetNum)}"]`);
+  if (row) row.classList.toggle('sched-selected', checked);
+  const allChk = document.getElementById('sched-chk-all');
+  const allRows = document.querySelectorAll('.schedule-row[data-sheetnum]');
+  if (allChk) allChk.checked = allRows.length > 0 && S._schedSel.size === allRows.length;
+  _updateSchedBulkBar(S._schedSel.size, allRows.length);
+}
+
+function toggleAllSchedSel(checked) {
+  const allRows = document.querySelectorAll('.schedule-row[data-sheetnum]');
+  S._schedSel = new Set();
+  allRows.forEach(r => {
+    const num = r.dataset.sheetnum;
+    r.classList.toggle('sched-selected', checked);
+    const chk = r.querySelector('.sched-sel-chk');
+    if (chk) chk.checked = checked;
+    if (checked) S._schedSel.add(num);
+  });
+  _updateSchedBulkBar(S._schedSel.size, allRows.length);
+}
+
+function applyBulkStatus() {
+  const val = parseInt(document.getElementById('sched-bulk-status').value);
+  if (!val || ![1,2,3,4].includes(val)) {
+    setAlert('status-bulk-alert', 'Please choose a status value (1 – 4) before applying.', 'danger');
+    return;
+  }
+  setAlert('status-bulk-alert', '');
+  if (!S._schedSel || S._schedSel.size === 0) return;
+  let updated = 0;
+  S.project.sheets.forEach(s => {
+    // Find the canonical sheetNum for this sheet and check if it's selected
+    if (S._schedSel.has(s.sheetNum)) {
+      s.statusId = val;
+      updated++;
+    }
+  });
+  saveDB();
+  // Reset dropdown and re-render to reflect changes
+  document.getElementById('sched-bulk-status').value = '';
+  renderSchedule();
+  if (updated > 0) {
+    setAlert('status-bulk-alert', `Status set to ${val} on ${updated} sheet record${updated !== 1 ? 's' : ''}.`, 'success');
+  }
+}
+
+function clearSchedSel() {
+  S._schedSel = new Set();
+  renderSchedule();
+}
+
+function _updateSchedBulkBar(selCount, totalCount) {
+  const bar = document.getElementById('sched-bulk-bar');
+  const lbl = document.getElementById('sched-sel-count');
+  if (!bar) return;
+  if (selCount > 0) {
+    bar.classList.add('visible');
+    if (lbl) lbl.textContent = `${selCount} of ${totalCount} sheet${totalCount !== 1 ? 's' : ''} selected`;
+  } else {
+    bar.classList.remove('visible');
+  }
 }
 
 function addManualSheet() {
@@ -1689,14 +1800,12 @@ function getScheduleData() {
       'Project Number':    S.project.num,
       'Project Name':      S.project.name,
     };
-    // One pair of columns per package: "PKG (due) – Status ID" and "PKG (due) – Status"
+    // One column per package — numeric status value only (1/2/3/4), blank if sheet not in package
     packages.forEach(p => {
       const s        = pkgMap[p.id];
       const statusId = s ? (s.statusId || 1) : null;
-      const status   = statusId != null ? S.project.statuses.find(st => st.id === statusId) : null;
       const colKey   = `${p.abbr || p.name} (${p.due})`;
-      row[`${colKey} – Status ID`] = statusId != null ? statusId : '';
-      row[`${colKey} – Status`]    = status ? `${statusId} – ${status.name}` : (statusId != null ? String(statusId) : '');
+      row[colKey]    = statusId != null ? statusId : '';
     });
     return row;
   });
@@ -1725,7 +1834,7 @@ function exportRevit() {
   if (!data.length) return;
   const packages     = S.project.packages;
   const fixedHeaders = ['Sheet Number','Sheet Name','Discipline Name','Project Number'];
-  const pkgHeaders   = packages.map(p => `${p.abbr || p.name} (${p.due}) – Status`);
+  const pkgHeaders   = packages.map(p => `${p.abbr || p.name} (${p.due})`);
   const headers      = [...fixedHeaders, ...pkgHeaders];
   const rows = [headers.join('\t'), ...data.map(r => headers.map(h => r[h] != null ? String(r[h]) : '').join('\t'))];
   dl(rows.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
@@ -1746,7 +1855,7 @@ function exportJSON() {
 function printSchedule() {
   const data     = getScheduleData();
   const packages = S.project.packages;
-  const pkgCols  = packages.map(p => `${p.abbr || p.name} (${p.due}) – Status`);
+  const pkgCols  = packages.map(p => `${p.abbr || p.name} (${p.due})`);
   let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Sheet Index — ${S.project.num}</title>
   <style>
     body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
