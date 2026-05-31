@@ -287,14 +287,14 @@ select.form-input{cursor:pointer}
 /* Sheet schedule preview */
 .schedule-header{
   display:grid;
-  gap:0;font-size:11px;font-weight:600;letter-spacing:0.4px;
+  gap:0 8px;font-size:11px;font-weight:600;letter-spacing:0.4px;
   color:var(--text3);text-transform:uppercase;font-family:var(--display);
   padding:8px 12px;background:var(--surface2);border-radius:var(--radius) var(--radius) 0 0;
   border:1px solid var(--border);border-bottom:none;
 }
 .schedule-row{
   display:grid;
-  gap:0;padding:8px 12px;
+  gap:0 8px;padding:8px 12px;
   border:1px solid var(--border);border-top:none;
   font-size:13px;align-items:center;
 }
@@ -650,7 +650,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <button class="btn btn-sm" onclick="printSchedule()">Print / PDF</button>
     </div>
     <div style="margin-bottom:20px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase;margin-bottom:10px">Status Definitions</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase">Status Definitions</div>
+        <button class="btn btn-sm" onclick="addStatus()">+ Add Status</button>
+      </div>
       <div id="status-defs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
     <div id="status-bulk-alert" style="margin-bottom:0"></div>
@@ -1558,10 +1561,9 @@ function saveUpload(silent) {
 function renderStatusDefs() {
   const el = document.getElementById('status-defs');
   el.innerHTML = S.project.statuses.map(st => `
-    <div style="display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px">
-      <span class="badge badge-gray mono" style="flex-shrink:0">${st.id}</span>
-      <span style="font-size:12px;font-family:var(--mono);color:var(--text3);flex-shrink:0">${st.id} –</span>
-      <input value="${escHtml(st.name)}" style="border:none;background:transparent;font-size:13px;color:var(--text);min-width:0;flex:1" onchange="updateStatus(${st.id},'name',this.value)"/>
+    <div style="display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px">
+      <input value="${escHtml(st.name)}" style="border:none;background:transparent;font-size:13px;color:var(--text);min-width:80px;flex:1" onchange="updateStatus(${st.id},'name',this.value);saveDB()"/>
+      <button onclick="deleteStatus(${st.id})" title="Delete this status" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;line-height:1;padding:0 2px" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</button>
     </div>
   `).join('');
 }
@@ -1569,6 +1571,28 @@ function renderStatusDefs() {
 function updateStatus(id, field, val) {
   const s = S.project.statuses.find(x => x.id === id);
   if (s) s[field] = val;
+}
+
+function addStatus() {
+  const maxId = S.project.statuses.reduce((m, s) => Math.max(m, s.id), 0);
+  S.project.statuses.push({ id: maxId + 1, name: 'New Status' });
+  saveDB();
+  renderStatusDefs();
+  renderSchedule(); // refresh pkg status selectors
+}
+
+function deleteStatus(id) {
+  if (S.project.statuses.length <= 1) {
+    setAlert('status-bulk-alert', 'At least one status must remain.', 'danger');
+    return;
+  }
+  // Remap any sheets using this status to status 1 (or the first available)
+  const fallback = S.project.statuses.find(s => s.id !== id)?.id || 1;
+  S.project.sheets.forEach(s => { if (s.statusId === id) s.statusId = fallback; });
+  S.project.statuses = S.project.statuses.filter(s => s.id !== id);
+  saveDB();
+  renderStatusDefs();
+  renderSchedule();
 }
 
 function renderSchedule() {
@@ -1607,9 +1631,9 @@ function renderSchedule() {
   // Prune stale selections
   S._schedSel = new Set([...S._schedSel].filter(num => sheetMap.has(num)));
 
-  // ── Column sizing: Sheet# | Sheet Name | Disc | [pkg cols, same width as Sheet#]
-  const PKG_COL    = 90;
-  const colTemplate = `${PKG_COL}px 1fr 60px ${packages.map(() => PKG_COL + 'px').join(' ')}`;
+  // ── Column sizing: Sheet# | Sheet Name | [pkg cols, equal width]
+  const PKG_COL     = 90;
+  const colTemplate = `${PKG_COL}px 1fr ${packages.map(() => PKG_COL + 'px').join(' ')}`;
 
   // ── Per-package selection state (all sheets in that pkg selected?) ──
   const pkgAllSel = {};
@@ -1618,9 +1642,16 @@ function renderSchedule() {
     pkgAllSel[p.id] = inPkg.length > 0 && inPkg.every(n => S._schedSel.has(n));
   });
 
+  // Dynamic status options built from live statuses
+  const statusOptsFn = (selectedId) => S.project.statuses.map(st =>
+    `<option value="${st.id}" ${selectedId === st.id ? 'selected' : ''}>${st.id}</option>`
+  ).join('');
+  const pkgStatusOpts = S.project.statuses.map(st =>
+    `<option value="${st.id}">${st.id}</option>`
+  ).join('');
+
   // ── Header ───────────────────────────────────────────────────
   const pkgHeaderCells = packages.map(p => {
-    const selAll = pkgAllSel[p.id];
     return `<div class="pkg-col-hdr">
       <div class="pkg-col-hdr-name" title="${escHtml(p.name)}">${escHtml(p.abbr || p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
@@ -1629,17 +1660,14 @@ function renderSchedule() {
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',false)" title="Unselect all sheets in this package">None</button>
         <select class="pkg-status-sel" title="Set status for selected (or all) sheets in this package" onchange="applyPkgStatus('${p.id}',this.value);this.value=''">
           <option value="">—</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
+          ${pkgStatusOpts}
         </select>
       </div>
     </div>`;
   }).join('');
 
   let html = `<div class="schedule-header" style="grid-template-columns:${colTemplate};align-items:start;padding-top:10px;padding-bottom:10px">
-    <span>Sheet #</span><span>Sheet Name</span><span>Disc</span>${pkgHeaderCells}
+    <span>Sheet #</span><span>Sheet Name</span>${pkgHeaderCells}
   </div>`;
 
   // ── Rows ─────────────────────────────────────────────────────
@@ -1654,24 +1682,20 @@ function renderSchedule() {
 
     const isSel = S._schedSel.has(row.sheetNum);
 
-    // Status cells: numeric-only select (1/2/3/4), no per-row checkbox
+    // Status cells — dynamic options from live statuses
     const statusCells = packages.map(p => {
       const sheetId = row.pkgMap[p.id];
       if (!sheetId) {
         return `<span style="display:block;text-align:center;color:var(--text3);font-size:12px">—</span>`;
       }
       const sheet    = S.project.sheets.find(s => s.id === sheetId);
-      const statusId = sheet ? (sheet.statusId || 1) : 1;
-      const opts     = [1,2,3,4].map(n =>
-        `<option value="${n}" ${statusId === n ? 'selected' : ''}>${n}</option>`
-      ).join('');
-      return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)">${opts}</select>`;
+      const statusId = sheet ? (sheet.statusId || S.project.statuses[0]?.id || 1) : (S.project.statuses[0]?.id || 1);
+      return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)">${statusOptsFn(statusId)}</select>`;
     }).join('');
 
     html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="grid-template-columns:${colTemplate}">
       <span class="mono" style="font-size:12px;font-weight:500">${escHtml(row.sheetNum)}</span>
       <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
-      <span style="font-size:11px;color:var(--text3)">${escHtml(row.discipline || '—')}</span>
       ${statusCells}
     </div>`;
   });
