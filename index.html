@@ -314,7 +314,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .schedule-row.sched-selected{background:var(--blue-bg)!important}
 .schedule-row.sched-selected:hover{background:#dbeaf8!important}
 /* Package column header controls */
-.pkg-col-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:2px;overflow:visible;padding:0 2px}
+.pkg-col-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:2px;overflow:visible}
 .pkg-col-hdr-name{font-size:11px;font-weight:600;letter-spacing:0.3px;white-space:nowrap;font-family:var(--display);text-transform:uppercase;color:var(--text2);line-height:1.4}
 .pkg-col-hdr-due{font-size:10px;font-weight:400;color:var(--text3);font-family:var(--mono);white-space:nowrap;line-height:1.3}
 .pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:3px;flex-wrap:nowrap}
@@ -653,7 +653,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <div id="status-defs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
     <div id="status-bulk-alert" style="margin-bottom:0"></div>
-    <div id="schedule-container"></div>
+    <div style="overflow-x:auto;width:100%">
+      <div id="schedule-container"></div>
+    </div>
   </div>
   <div class="view-footer">
     <button class="btn btn-nav" onclick="tryNav('upload')">← Back</button>
@@ -1627,25 +1629,16 @@ function renderSchedule() {
   // Prune stale selections
   S._schedSel = new Set([...S._schedSel].filter(num => sheetMap.has(num)));
 
-  // ── Sort packages: closest due date → left; furthest → right ────
+  // ── Sort packages by due date ascending (closest left → furthest right) ──
   const sortedPkgs = [...S.project.packages].sort((a, b) => {
     const da = a.due ? new Date(a.due).getTime() : Infinity;
     const db = b.due ? new Date(b.due).getTime() : Infinity;
     return da - db;
   });
 
-  // ── Column sizing ────────────────────────────────────────────────
-  // Sheet# fixed, Sheet Name flexible, each pkg col sized to fit its name.
-  // We use minmax(min-content, auto) approximation by computing a min width
-  // from the name length (ch units don't render consistently, so use px estimate).
-  // 8px per char is a safe upper bound for the 11px display font used.
-  const PKG_MIN = 110; // minimum px per pkg col
-  const pkgColWidths = sortedPkgs.map(p => {
-    const nameLen  = (p.name || p.abbr || '').length * 7.5;
-    const ctrlsLen = 100; // All + None + dropdown ≈ 100px
-    return Math.max(PKG_MIN, Math.ceil(Math.max(nameLen, ctrlsLen)));
-  });
-  const colTemplate = `90px 1fr ${pkgColWidths.map(w => w + 'px').join(' ')}`;
+  // ── All columns equal 1fr — Sheet# | Sheet Name | [one per pkg] ──
+  const totalCols   = 2 + sortedPkgs.length;
+  const colTemplate = Array(totalCols).fill('1fr').join(' ');
 
   // ── Dynamic status options ───────────────────────────────────────
   const statusOptsFn = (selectedId) => S.project.statuses.map(st =>
@@ -1658,7 +1651,7 @@ function renderSchedule() {
   // ── Header ───────────────────────────────────────────────────────
   const pkgHeaderCells = sortedPkgs.map(p => {
     return `<div class="pkg-col-hdr">
-      <div class="pkg-col-hdr-name" title="${escHtml(p.name)}">${escHtml(p.name)}</div>
+      <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
       <div class="pkg-col-hdr-controls">
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',true)"  title="Select all sheets in this package">All</button>
@@ -1687,11 +1680,11 @@ function renderSchedule() {
 
     const isSel = S._schedSel.has(row.sheetNum);
 
-    // Status cells — columns follow sortedPkgs order
+    // Status cells — follow sortedPkgs column order
     const statusCells = sortedPkgs.map(p => {
       const sheetId = row.pkgMap[p.id];
       if (!sheetId) {
-        return `<span style="display:block;text-align:center;color:var(--text3);font-size:12px">—</span>`;
+        return `<span style="display:block;color:var(--text3);font-size:12px">—</span>`;
       }
       const sheet    = S.project.sheets.find(s => s.id === sheetId);
       const statusId = sheet ? (sheet.statusId || S.project.statuses[0]?.id || 1) : (S.project.statuses[0]?.id || 1);
@@ -1699,8 +1692,8 @@ function renderSchedule() {
     }).join('');
 
     html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="grid-template-columns:${colTemplate}">
-      <span class="mono" style="font-size:12px;font-weight:500">${escHtml(row.sheetNum)}</span>
-      <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
+      <span class="mono" style="font-size:12px;font-weight:500;white-space:nowrap">${escHtml(row.sheetNum)}</span>
+      <span style="font-size:13px;white-space:nowrap" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
       ${statusCells}
     </div>`;
   });
@@ -1797,8 +1790,8 @@ function addManualSheetUpload() {
 
 // ── EXPORTS ──────────────────────────────────────────────────
 function getScheduleData() {
-  // Sort packages by due date ascending — closest first, matching the UI column order
-  const packages  = [...S.project.packages].sort((a, b) => {
+  // Sort packages by due date ascending — matches the visual column order in the schedule
+  const packages = [...S.project.packages].sort((a, b) => {
     const da = a.due ? new Date(a.due).getTime() : Infinity;
     const db = b.due ? new Date(b.due).getTime() : Infinity;
     return da - db;
