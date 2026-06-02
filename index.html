@@ -314,10 +314,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .schedule-row.sched-selected{background:var(--blue-bg)!important}
 .schedule-row.sched-selected:hover{background:#dbeaf8!important}
 /* Package column header controls */
-.pkg-col-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:2px;overflow:visible}
-.pkg-col-hdr-name{font-size:11px;font-weight:600;letter-spacing:0.3px;white-space:nowrap;font-family:var(--display);text-transform:uppercase;color:var(--text2);line-height:1.4}
-.pkg-col-hdr-due{font-size:10px;font-weight:400;color:var(--text3);font-family:var(--mono);white-space:nowrap;line-height:1.3}
-.pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:3px;flex-wrap:nowrap}
+.pkg-col-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.pkg-col-hdr-name{font-size:11px;font-weight:600;letter-spacing:0.3px;white-space:normal;overflow-wrap:break-word;font-family:var(--display);text-transform:uppercase;color:var(--text2);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pkg-col-hdr-due{font-size:11px;font-weight:600;color:var(--text2);font-family:var(--display);white-space:nowrap;margin-top:1px}
+.pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:4px;flex-wrap:nowrap}
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
@@ -653,9 +653,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <div id="status-defs" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
     <div id="status-bulk-alert" style="margin-bottom:0"></div>
-    <div style="overflow-x:auto;width:100%">
-      <div id="schedule-container"></div>
-    </div>
+    <div id="schedule-container"></div>
   </div>
   <div class="view-footer">
     <button class="btn btn-nav" onclick="tryNav('upload')">← Back</button>
@@ -1636,11 +1634,12 @@ function renderSchedule() {
     return da - db;
   });
 
-  // ── All columns equal 1fr — Sheet# | Sheet Name | [one per pkg] ──
-  const totalCols   = 2 + sortedPkgs.length;
-  const colTemplate = Array(totalCols).fill('1fr').join(' ');
+  // ── Column sizing (percentage-based, gap handled by column-gap) ──
+  // Sheet# = 15%, Sheet Name = 25%, each pkg = 10%
+  // Spacing between columns = 2% (via column-gap on the grid)
+  const colTemplate = `15% 25% ${sortedPkgs.map(() => '10%').join(' ')}`;
 
-  // ── Dynamic status options ───────────────────────────────────────
+  // ── Dynamic status options ──────────────────────────────────────
   const statusOptsFn = (selectedId) => S.project.statuses.map(st =>
     `<option value="${st.id}" ${selectedId === st.id ? 'selected' : ''}>${st.id}</option>`
   ).join('');
@@ -1664,7 +1663,9 @@ function renderSchedule() {
     </div>`;
   }).join('');
 
-  let html = `<div class="schedule-header" style="grid-template-columns:${colTemplate};align-items:start;padding-top:10px;padding-bottom:10px">
+  const gridStyle = `grid-template-columns:${colTemplate};column-gap:2%;align-items:start;padding-top:10px;padding-bottom:10px`;
+
+  let html = `<div class="schedule-header" style="${gridStyle}">
     <span>Sheet #</span><span>Sheet Name</span>${pkgHeaderCells}
   </div>`;
 
@@ -1691,9 +1692,9 @@ function renderSchedule() {
       return `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)">${statusOptsFn(statusId)}</select>`;
     }).join('');
 
-    html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="grid-template-columns:${colTemplate}">
-      <span class="mono" style="font-size:12px;font-weight:500;white-space:nowrap">${escHtml(row.sheetNum)}</span>
-      <span style="font-size:13px;white-space:nowrap" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
+    html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="grid-template-columns:${colTemplate};column-gap:2%">
+      <span class="mono" style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(row.sheetNum)}</span>
+      <span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
       ${statusCells}
     </div>`;
   });
@@ -1790,7 +1791,7 @@ function addManualSheetUpload() {
 
 // ── EXPORTS ──────────────────────────────────────────────────
 function getScheduleData() {
-  // Sort packages by due date ascending — matches the visual column order in the schedule
+  // Sort packages by due date ascending — matches visual column order in Level 6
   const packages = [...S.project.packages].sort((a, b) => {
     const da = a.due ? new Date(a.due).getTime() : Infinity;
     const db = b.due ? new Date(b.due).getTime() : Infinity;
