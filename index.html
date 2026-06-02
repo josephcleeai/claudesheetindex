@@ -1634,10 +1634,10 @@ function renderSchedule() {
     return da - db;
   });
 
-  // ── Column sizing (percentage-based, gap handled by column-gap) ──
-  // Sheet# = 15%, Sheet Name = 25%, each pkg = 10%
-  // Spacing between columns = 2% (via column-gap on the grid)
-  const colTemplate = `15% 25% ${sortedPkgs.map(() => '10%').join(' ')}`;
+  // ── Column sizing ─────────────────────────────────────────────────
+  // Sheet# = 10%, Sheet Name = 20%, each pkg = equal share of remaining space (1fr)
+  // column-gap:2% provides uniform spacing between every column pair
+  const colTemplate = `10% 20% ${sortedPkgs.map(() => '1fr').join(' ')}`;
 
   // ── Dynamic status options ──────────────────────────────────────
   const statusOptsFn = (selectedId) => S.project.statuses.map(st =>
