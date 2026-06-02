@@ -135,7 +135,11 @@ h1,h2,h3,h4{font-family:var(--display)}
   padding:16px 36px;
   background:var(--surface);
   border-top:1px solid var(--border);
-  display:flex;align-items:center;gap:10px;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+}
+/* Nav buttons — Back / Save / Next — uniform width */
+.btn-nav{
+  min-width:110px;text-align:center;
 }
 
 /* Buttons */
@@ -499,11 +503,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div><!-- /.flex row -->
   </div>
   <div class="view-footer">
-    <button class="btn btn-primary" onclick="saveProject()">Save</button>
-    <button class="btn" onclick="saveAndNext('project','disciplines')">Save &amp; Next →</button>
-    <div style="flex:1"></div>
-    <button class="btn" onclick="tryNav('login')">← Back</button>
-    <button class="btn" onclick="tryExit()">Exit</button>
+    <button class="btn btn-nav" onclick="tryNav('login')">← Back</button>
+    <button class="btn btn-primary btn-nav" onclick="saveProject()">Save</button>
+    <button class="btn btn-nav" onclick="saveAndNext('project','disciplines')">Next →</button>
   </div>
 </div>
 
@@ -542,11 +544,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-primary" onclick="saveDisciplines()">Save</button>
-    <button class="btn" onclick="saveAndNext('disciplines','packages')">Save &amp; Next →</button>
-    <div style="flex:1"></div>
-    <button class="btn" onclick="tryNav('project')">← Back</button>
-    <button class="btn" onclick="tryExit()">Exit</button>
+    <button class="btn btn-nav" onclick="tryNav('project')">← Back</button>
+    <button class="btn btn-primary btn-nav" onclick="saveDisciplines()">Save</button>
+    <button class="btn btn-nav" onclick="saveAndNext('disciplines','packages')">Next →</button>
   </div>
 </div>
 
@@ -572,11 +572,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     <div id="pkg-list"></div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-primary" onclick="savePackages()">Save</button>
-    <button class="btn" onclick="saveAndNext('packages','upload')">Save &amp; Next →</button>
-    <div style="flex:1"></div>
-    <button class="btn" onclick="tryNav('disciplines')">← Back</button>
-    <button class="btn" onclick="tryExit()">Exit</button>
+    <button class="btn btn-nav" onclick="tryNav('disciplines')">← Back</button>
+    <button class="btn btn-primary btn-nav" onclick="savePackages()">Save</button>
+    <button class="btn btn-nav" onclick="saveAndNext('packages','upload')">Next →</button>
   </div>
 </div>
 
@@ -619,11 +617,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-primary" onclick="saveUpload()">Save</button>
-    <button class="btn" onclick="saveAndNext('upload','status')">Save &amp; Next →</button>
-    <div style="flex:1"></div>
-    <button class="btn" onclick="tryNav('packages')">← Back</button>
-    <button class="btn" onclick="tryExit()">Exit</button>
+    <button class="btn btn-nav" onclick="tryNav('packages')">← Back</button>
+    <button class="btn btn-primary btn-nav" onclick="saveUpload()">Save</button>
+    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Next →</button>
   </div>
 </div>
 
@@ -660,8 +656,8 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     <div id="schedule-container"></div>
   </div>
   <div class="view-footer">
-    <button class="btn" onclick="tryNav('upload')">← Back</button>
-    <button class="btn" onclick="tryExit()">Exit</button>
+    <button class="btn btn-nav" onclick="tryNav('upload')">← Back</button>
+    <button class="btn btn-primary btn-nav" onclick="saveDB()">Save</button>
   </div>
 </div>
 
