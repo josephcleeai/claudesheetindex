@@ -355,7 +355,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
     <div class="nav-item locked" data-step="status" onclick="tryNav('status')">
       <div class="nav-num">6</div>
-      <div class="nav-label">Status / Export</div>
+      <div class="nav-label">Review / Export</div>
     </div>
   </div>
   <div id="project-info" style="display:none">
@@ -574,7 +574,6 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   <div class="view-footer">
     <button class="btn btn-nav" onclick="tryNav('disciplines')">← Back</button>
     <button class="btn btn-primary btn-nav" onclick="savePackages()">Save</button>
-    <button class="btn btn-nav" onclick="saveAndNext('packages','upload')">Next →</button>
   </div>
 </div>
 
@@ -617,9 +616,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-nav" onclick="tryNav('packages')">← Back</button>
+    <button class="btn btn-nav" onclick="tryNav('packages')">Packages</button>
     <button class="btn btn-primary btn-nav" onclick="saveUpload()">Save</button>
-    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Next →</button>
+    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Review / Export →</button>
   </div>
 </div>
 
@@ -1119,34 +1118,31 @@ function renderDisciplines() {
   const sorted = [...S.project.disciplines].sort((a,b) =>
     a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => `
-    <tr data-prefix="${escHtml(d.prefix)}">
-      <td><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:60px"/></td>
-      <td><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
-      <td><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:70px"/></td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
+    <tr data-prefix="${d.prefix}">
+      <td><input class="mono" value="${d.order}" onchange="updateDisc('${d.prefix}','order',this.value)" style="width:60px"/></td>
+      <td><input value="${escHtml(d.name)}" onchange="updateDisc('${d.prefix}','name',this.value)"/></td>
+      <td><input class="mono" value="${d.prefix}" onchange="updateDiscPrefix('${d.prefix}',this.value)" style="width:70px"/></td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteDisc('${d.prefix}')">×</button></td>
     </tr>
   `).join('');
 }
 
 function updateDisc(prefix, field, val) {
-  const d = S.project.disciplines.find(x => String(x.prefix) === String(prefix));
-  if (d) { d[field] = String(val).trim(); markDirty('disciplines'); }
+  const d = S.project.disciplines.find(x => x.prefix === prefix);
+  if (d) { d[field] = val.trim(); markDirty('disciplines'); }
 }
 
 function updateDiscPrefix(oldPrefix, newPrefix) {
-  // Always treat the prefix as text — explicit String() guards against any
-  // accidental numeric coercion, and preserves leading zeros / digit-only values
-  // exactly as typed (e.g. "007", "100" stay strings, not 7 or 100).
-  newPrefix = String(newPrefix).trim().toUpperCase();
+  newPrefix = newPrefix.trim().toUpperCase();
   if (!newPrefix) return;
-  const dup = S.project.disciplines.find(x => String(x.prefix) === newPrefix && String(x.prefix) !== String(oldPrefix));
+  const dup = S.project.disciplines.find(x => x.prefix === newPrefix && x.prefix !== oldPrefix);
   if (dup) {
     showModal('Duplicate Prefix',
       `Sheet prefix "${newPrefix}" is already in use. Each prefix must be unique.`,
       [{label:'OK', primary:true, action:closeModal}]);
     renderDisciplines(); return;
   }
-  const d = S.project.disciplines.find(x => String(x.prefix) === String(oldPrefix));
+  const d = S.project.disciplines.find(x => x.prefix === oldPrefix);
   if (d) { d.prefix = newPrefix; markDirty('disciplines'); }
 }
 
@@ -1198,7 +1194,7 @@ function renderPackages() {
         <button class="btn btn-sm" title="Move up" onclick="movePkg('${pkg.id}',-1)">↑</button>
         <button class="btn btn-sm" title="Move down" onclick="movePkg('${pkg.id}',1)">↓</button>
         <button class="btn btn-sm" onclick="insertPkgAfter('${pkg.id}')">+ Insert</button>
-        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')">Upload ↑</button>
+        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')" title="Edit this package's uploaded sheets">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="deletePkg('${pkg.id}')">×</button>
       </div>
     </div>
@@ -1388,18 +1384,14 @@ function parseSheetFromFilename(fname, pageNum=1) {
 
 function guessDiscipline(sheetNum) {
   if (!S.project) return '';
-  const num = String(sheetNum || '').toUpperCase();
-  if (!num) return '';
+  // Extract the alphabetic prefix (letters before the first digit)
+  const letterPrefix = sheetNum.replace(/\d.*$/, '').toUpperCase();
+  if (!letterPrefix) return '';
 
-  // Match against registered discipline prefixes as literal text — prefixes may be
-  // alphabetic ("ST"), numeric ("100"), or alphanumeric ("S1"); never assume a
-  // digit marks the end of the prefix. Longest prefix wins so "STD" matches
-  // before "ST" and "S" when a sheet number starts with "STD".
-  const sorted = [...S.project.disciplines]
-    .filter(d => d.prefix) // skip any blank/undefined prefixes
-    .sort((a, b) => String(b.prefix).length - String(a.prefix).length);
-
-  const disc = sorted.find(d => num.startsWith(String(d.prefix).toUpperCase()));
+  // Sort disciplines by prefix length descending so longer prefixes match first
+  // e.g. "STD" matches before "ST" and "S" when sheet num starts with "STD"
+  const sorted = [...S.project.disciplines].sort((a, b) => b.prefix.length - a.prefix.length);
+  const disc = sorted.find(d => letterPrefix === d.prefix || letterPrefix.startsWith(d.prefix));
   return disc ? disc.prefix : '';
 }
 
@@ -1974,7 +1966,7 @@ if (!DB.users.length) {
   4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
   5. Upload — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               manually correct any fields in the inline table
-  6. Status / Export — sort schedule by discipline, assign statuses, export to:
+  6. Review / Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
 
   REVIT EXPORT
