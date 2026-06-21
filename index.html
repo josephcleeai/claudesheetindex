@@ -357,7 +357,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
     <div class="nav-item locked" data-step="status" onclick="tryNav('status')">
       <div class="nav-num">6</div>
-      <div class="nav-label">Status / Export</div>
+      <div class="nav-label">Review / Export</div>
     </div>
   </div>
   <div id="project-info" style="display:none">
@@ -581,7 +581,6 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   <div class="view-footer">
     <button class="btn btn-nav" onclick="tryNav('disciplines')">← Back</button>
     <button class="btn btn-primary btn-nav" onclick="savePackages()">Save</button>
-    <button class="btn btn-nav" onclick="saveAndNext('packages','upload')">Next →</button>
   </div>
 </div>
 
@@ -624,9 +623,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-nav" onclick="tryNav('packages')">← Back</button>
+    <button class="btn btn-nav" onclick="tryNav('packages')">Packages</button>
     <button class="btn btn-primary btn-nav" onclick="saveUpload()">Save</button>
-    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Next →</button>
+    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Review / Export →</button>
   </div>
 </div>
 
@@ -1144,7 +1143,8 @@ function setDiscSortDir(dir) {
   renderDisciplines();
 }
 
-// Shared helper: highlight whichever sort-direction button (asc/desc) is active
+// Shared helper: highlight whichever sort-direction button (asc/desc) is active.
+// Used by both Level 3 (disciplines) and Level 5 (uploaded sheets).
 function _updateSortBtnState(idPrefix, dir) {
   const ascBtn  = document.getElementById(`${idPrefix}-asc`);
   const descBtn = document.getElementById(`${idPrefix}-desc`);
@@ -1219,7 +1219,7 @@ function renderPackages() {
         <button class="btn btn-sm" title="Move up" onclick="movePkg('${pkg.id}',-1)">↑</button>
         <button class="btn btn-sm" title="Move down" onclick="movePkg('${pkg.id}',1)">↓</button>
         <button class="btn btn-sm" onclick="insertPkgAfter('${pkg.id}')">+ Insert</button>
-        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')">Upload ↑</button>
+        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')" title="Edit this package's uploaded sheets">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="deletePkg('${pkg.id}')">×</button>
       </div>
     </div>
@@ -2012,7 +2012,7 @@ if (!DB.users.length) {
   4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
   5. Upload — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               manually correct any fields in the inline table
-  6. Status / Export — sort schedule by discipline, assign statuses, export to:
+  6. Review / Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
 
   REVIT EXPORT
