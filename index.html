@@ -603,7 +603,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <polyline points="9 15 12 12 15 15"/>
       </svg>
       <div class="drop-title">Drop PDF files here</div>
-      <div class="drop-sub">Or click to browse · Up to 200 PDFs per batch · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
+      <div class="drop-sub">Or click to browse · Up to 150 PDFs per batch · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
     </div>
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div style="margin-top:10px">
@@ -1282,7 +1282,7 @@ dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.
 
 function triggerFileInput() { document.getElementById('file-input').click(); }
 
-const MAX_UPLOAD_BATCH = 200;
+const MAX_UPLOAD_BATCH = 150;
 
 async function handleFiles(files) {
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
@@ -1301,20 +1301,14 @@ async function handleFiles(files) {
     return;
   }
 
-  // --- Requirement 3: cap each upload attempt at 200 files ---
+  // --- Requirement 1: cap each upload attempt at 150 files ---
   let cappedNote = '';
   let batch = pdfFiles;
   if (pdfFiles.length > MAX_UPLOAD_BATCH) {
     batch = pdfFiles.slice(0, MAX_UPLOAD_BATCH);
-    cappedNote = ` ${pdfFiles.length - MAX_UPLOAD_BATCH} file${pdfFiles.length - MAX_UPLOAD_BATCH !== 1 ? 's were' : ' was'} not processed — upload up to ${MAX_UPLOAD_BATCH} at a time. You can add the rest in another batch.`;
+    const over = pdfFiles.length - MAX_UPLOAD_BATCH;
+    cappedNote = ` ${over} file${over !== 1 ? 's were' : ' was'} not processed — upload up to ${MAX_UPLOAD_BATCH} at a time. You can add the rest in another batch.`;
   }
-
-  // --- Requirement 4: existing filenames already in THIS package ---
-  const existingNames = new Set(
-    S.project.sheets
-      .filter(s => s.packageId === pkgId && s.fileName)
-      .map(s => s.fileName.toLowerCase())
-  );
 
   S._uploadBusy = true;
   const progressEl = document.getElementById('extraction-progress');
@@ -1325,26 +1319,14 @@ async function handleFiles(files) {
 
   let autoAssigned = 0;
   let added = 0;
-  let dupSkipped = 0;
-  // Track filenames seen within THIS batch too (handles dupes inside one selection).
-  const seenThisBatch = new Set();
+  let replaced = 0;   // same sheet number, different sheet name → file + name replaced
+  let refreshed = 0;  // same sheet number + name, newer file → active version updated
 
   for (let i = 0; i < batch.length; i++) {
     const file = batch[i];
 
     bar.style.width = Math.round((i / batch.length) * 100) + '%';
     if (label) label.textContent = `Extracting sheet data… ${i + 1} of ${batch.length}`;
-
-    const nameKey = file.name.toLowerCase();
-
-    // --- Requirement 4: ignore duplicate files in the same package ---
-    if (existingNames.has(nameKey) || seenThisBatch.has(nameKey)) {
-      dupSkipped++;
-      // Yield occasionally even when skipping so the UI stays live.
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-      continue;
-    }
-    seenThisBatch.add(nameKey);
 
     // --- Step 1: Parse metadata from filename (__ primary, -- secondary, _ tertiary) ---
     const fnParsed = parseSheetFromFilename(file.name);
@@ -1361,11 +1343,14 @@ async function handleFiles(files) {
       const sheetNum  = fnHasDelimiter ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
       const sheetName = fnHasDelimiter ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
 
-      // --- Step 3: Auto-assign discipline by matching prefix to Level 3 disciplines ---
-      const discipline = guessDiscipline(sheetNum);
-
+      // Match on sheet number within this package. This also matches records
+      // pushed earlier in THIS same batch, so a later file naturally replaces
+      // an earlier one with the same sheet number.
       const existing = S.project.sheets.find(s => s.sheetNum === sheetNum && s.packageId === pkgId);
+
       if (!existing) {
+        // --- New sheet number: add it, auto-assigning discipline by prefix ---
+        const discipline = guessDiscipline(sheetNum);
         if (discipline) autoAssigned++;
         S.project.sheets.push({
           id: uid(), packageId: pkgId,
@@ -1375,6 +1360,24 @@ async function handleFiles(files) {
           _autoDisc: !!discipline   // flag for UI indicator
         });
         added++;
+      } else {
+        // --- Requirements 2 & 3: same sheet number already exists ---
+        // Keep the existing record (preserving its status, discipline and id),
+        // but make the most recently uploaded file the active version.
+        const nameDiffers = (existing.sheetName || '') !== (sheetName || '');
+        const fileDiffers = (existing.fileName || '').toLowerCase() !== file.name.toLowerCase();
+
+        if (nameDiffers) {
+          // Replace: newer file + updated sheet name become the active version.
+          existing.sheetName = sheetName;
+          existing.fileName  = file.name;
+          replaced++;
+        } else if (fileDiffers) {
+          // Same sheet name, newer file → keep the latest file as active version.
+          existing.fileName = file.name;
+          refreshed++;
+        }
+        // else: identical re-upload (same number, name and file) → no change.
       }
     }
 
@@ -1386,9 +1389,12 @@ async function handleFiles(files) {
   bar.style.width = '100%';
   setTimeout(() => { progressEl.style.display = 'none'; if (label) label.textContent = 'Extracting sheet data…'; }, 500);
 
-  // Persist immediately so a refresh mid-session keeps this batch.
-  markDirty('upload');
+  // --- Requirement 4: auto-save the project after the batch completes ---
+  // Mirrors the manual Save: persist to localStorage, clear the unsaved flag,
+  // and unlock the Status/Review step so the workflow can proceed.
   saveDB();
+  S.dirty['upload'] = false;
+  unlockUpTo('status');
   renderFileList();
 
   // Reset the file input so re-selecting the same files fires onchange again.
@@ -1398,10 +1404,12 @@ async function handleFiles(files) {
 
   // --- Summary ---
   const parts = [];
-  if (added > 0) parts.push(`${added} sheet${added !== 1 ? 's' : ''} added`);
+  if (added > 0)      parts.push(`${added} sheet${added !== 1 ? 's' : ''} added`);
+  if (replaced > 0)   parts.push(`${replaced} replaced with newer version`);
+  if (refreshed > 0)  parts.push(`${refreshed} updated to latest file`);
   if (autoAssigned > 0) parts.push(`${autoAssigned} auto-assigned to disciplines`);
-  if (dupSkipped > 0) parts.push(`${dupSkipped} duplicate${dupSkipped !== 1 ? 's' : ''} ignored`);
-  const summary = (parts.length ? parts.join(' · ') + '.' : 'No new sheets added.') + cappedNote;
+  const summary = (parts.length ? parts.join(' · ') + '.' : 'No new sheets added.')
+    + ' Saved.' + cappedNote;
   setAlert('upload-alert', summary, cappedNote ? 'danger' : 'success');
 }
 
