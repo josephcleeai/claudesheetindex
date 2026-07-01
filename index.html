@@ -308,7 +308,7 @@ select.form-input{cursor:pointer}
 .schedule-row:hover{background:var(--surface2)}
 .disc-separator{
   padding:5px 12px;font-size:11px;font-weight:700;
-  color:var(--text3);background:var(--bg);
+  color:var(--text);background:var(--bg);
   border:1px solid var(--border);border-top:none;
   font-family:var(--display);letter-spacing:0.5px;text-transform:uppercase;
 }
@@ -1840,7 +1840,7 @@ function renderSchedule() {
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',true)"  title="Select all sheets in this package">All</button>
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',false)" title="Unselect all sheets in this package">None</button>
         <select class="pkg-status-sel" title="Set status for selected (or all) sheets in this package" onchange="applyPkgStatus('${p.id}',this.value);this.value=''">
-          <option value="">—</option>
+          <option value="">-</option>
           ${pkgStatusOpts}
         </select>
       </div>
@@ -1893,7 +1893,7 @@ function renderSchedule() {
       const statusCells = sortedPkgs.map(p => {
         const sheetId = row.pkgMap[p.id];
         if (!sheetId) {
-          return `<span style="display:block;color:var(--text3);font-size:12px;text-align:center">—</span>`;
+          return `<span style="display:block;color:var(--text3);font-size:12px;text-align:center">-</span>`;
         }
         const sheet    = S.project.sheets.find(s => s.id === sheetId);
         const statusId = sheet ? (sheet.statusId || S.project.statuses[0]?.id || 1) : (S.project.statuses[0]?.id || 1);
@@ -2034,7 +2034,7 @@ function getScheduleRows() {
     const db = b.due ? new Date(b.due).getTime() : Infinity;
     return da - db;
   });
-  const pkgCols = sortedPkgs.map(p => ({ id: p.id, label: `${p.abbr || p.name} (${p.due || ''})` }));
+  const pkgCols = sortedPkgs.map(p => ({ id: p.id, label: `${p.name}${p.due ? ' (' + p.due + ')' : ''}` }));
 
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
@@ -2149,7 +2149,7 @@ function getScheduleData() {
     packages.forEach(p => {
       const s        = pkgMap[p.id];
       const statusId = s ? (s.statusId || 1) : null;
-      const colKey   = `${p.abbr || p.name} (${p.due})`;
+      const colKey   = `${p.name} (${p.due})`;
       row[colKey]    = statusId != null ? statusId : '';
     });
     return row;
@@ -2158,13 +2158,14 @@ function getScheduleData() {
 
 function exportXLSX() {
   const { pkgCols, rows } = getScheduleRows();
-  const header = ['Sheet Number', 'Sheet Name', ...pkgCols.map(p => p.label)];
+  const up = v => String(v ?? '').toUpperCase();
+  const header = ['SHEET NUMBER', 'SHEET NAME', ...pkgCols.map(p => up(p.label))];
   const aoa = [header];
   rows.forEach(r => {
     if (r.type === 'blank')            aoa.push([]);
-    else if (r.type === 'discipline')  aoa.push([r.label]);
-    else if (r.type === 'sheet')       aoa.push([r.sheetNum, r.sheetName, ...r.statusValues]);
-    else /* subtotal | grandtotal */   aoa.push([r.label, '', ...r.counts]);
+    else if (r.type === 'discipline')  aoa.push([up(r.label)]);
+    else if (r.type === 'sheet')       aoa.push([up(r.sheetNum), up(r.sheetName), ...r.statusValues]);
+    else /* subtotal | grandtotal */   aoa.push([up(r.label), '', ...r.counts]);
   });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
@@ -2174,15 +2175,16 @@ function exportXLSX() {
 
 function exportCSV() {
   const { pkgCols, rows } = getScheduleRows();
-  const header = ['Sheet Number', 'Sheet Name', ...pkgCols.map(p => p.label)];
+  const up = v => String(v ?? '').toUpperCase();
+  const header = ['SHEET NUMBER', 'SHEET NAME', ...pkgCols.map(p => up(p.label))];
   const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [header.map(esc).join(',')];
   rows.forEach(r => {
     let arr;
     if (r.type === 'blank')            arr = header.map(() => '');
-    else if (r.type === 'discipline')  arr = [r.label, ...header.slice(1).map(() => '')];
-    else if (r.type === 'sheet')       arr = [r.sheetNum, r.sheetName, ...r.statusValues];
-    else /* subtotal | grandtotal */   arr = [r.label, '', ...r.counts];
+    else if (r.type === 'discipline')  arr = [up(r.label), ...header.slice(1).map(() => '')];
+    else if (r.type === 'sheet')       arr = [up(r.sheetNum), up(r.sheetName), ...r.statusValues];
+    else /* subtotal | grandtotal */   arr = [up(r.label), '', ...r.counts];
     lines.push(arr.map(esc).join(','));
   });
   dl(lines.join('\n'), `${S.project.num}_SheetIndex.csv`, 'text/csv');
@@ -2194,7 +2196,7 @@ function exportRevit() {
   if (!data.length) return;
   const packages     = S.project.packages;
   const fixedHeaders = ['Sheet Number','Sheet Name','Discipline Name','Project Number'];
-  const pkgHeaders   = packages.map(p => `${p.abbr || p.name} (${p.due})`);
+  const pkgHeaders   = packages.map(p => `${p.name} (${p.due})`);
   const headers      = [...fixedHeaders, ...pkgHeaders];
   const rows = [headers.join('\t'), ...data.map(r => headers.map(h => r[h] != null ? String(r[h]) : '').join('\t'))];
   dl(rows.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
@@ -2214,8 +2216,9 @@ function exportJSON() {
 
 function printSchedule() {
   const { pkgCols, rows } = getScheduleRows();
+  const up = v => String(v ?? '').toUpperCase();
   const totalCols = 2 + pkgCols.length;
-  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Sheet Index — ${S.project.num}</title>
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${up(`Sheet Index — ${S.project.num}`)}</title>
   <style>
     body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
     h1{font-size:16px;margin-bottom:4px}
@@ -2226,31 +2229,31 @@ function printSchedule() {
     th.num{text-align:center}
     td{padding:5px 8px;border-bottom:1px solid #eee}
     td.num{text-align:center}
-    tr.disc-head td{background:#e8e8e4;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #ccc}
+    tr.disc-head td{background:#e8e8e4;color:#000;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #ccc}
     tr.blank-row td{border:none;padding:0;height:10px}
     tr.subtotal-row td{background:#f5f5f3;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.3px}
     tr.grandtotal-row td{background:#eaf1fb;font-weight:700;border-top:2px solid #999}
     @media print{@page{margin:15mm 10mm}}
   </style></head><body>
-  <h1>Sheet Index — ${escHtmlRaw(S.project.name)}</h1>
-  <h2>Project No. ${escHtmlRaw(S.project.num)} &nbsp;·&nbsp; ${escHtmlRaw(S.project.city||'')}${S.project.state?', '+escHtmlRaw(S.project.state):''}</h2>
-  <p>Generated ${new Date().toLocaleString()}</p>
+  <h1>${up(`Sheet Index — ${S.project.name}`)}</h1>
+  <h2>${up(`Project No. ${S.project.num}`)} &nbsp;·&nbsp; ${up(S.project.city||'')}${S.project.state ? ', ' + up(S.project.state) : ''}</h2>
+  <p>${up(`Generated ${new Date().toLocaleString()}`)}</p>
   <table><thead><tr>
-    <th>Sheet #</th><th>Sheet Name</th>
-    ${pkgCols.map(c => `<th class="num">${escHtmlRaw(c.label)}</th>`).join('')}
+    <th>SHEET #</th><th>SHEET NAME</th>
+    ${pkgCols.map(c => `<th class="num">${escHtmlRaw(up(c.label))}</th>`).join('')}
   </tr></thead><tbody>`;
 
   rows.forEach(r => {
     if (r.type === 'blank') {
       html += `<tr class="blank-row"><td colspan="${totalCols}"></td></tr>`;
     } else if (r.type === 'discipline') {
-      html += `<tr class="disc-head"><td colspan="${totalCols}">${escHtmlRaw(r.label)}</td></tr>`;
+      html += `<tr class="disc-head"><td colspan="${totalCols}">${escHtmlRaw(up(r.label))}</td></tr>`;
     } else if (r.type === 'sheet') {
-      html += `<tr><td>${escHtmlRaw(r.sheetNum)}</td><td>${escHtmlRaw(r.sheetName)}</td>${r.statusValues.map(v => `<td class="num">${v !== '' ? escHtmlRaw(String(v)) : '—'}</td>`).join('')}</tr>`;
+      html += `<tr><td>${escHtmlRaw(up(r.sheetNum))}</td><td>${escHtmlRaw(up(r.sheetName))}</td>${r.statusValues.map(v => `<td class="num">${v !== '' ? escHtmlRaw(String(v)) : '-'}</td>`).join('')}</tr>`;
     } else if (r.type === 'subtotal') {
-      html += `<tr class="subtotal-row"><td colspan="2">${escHtmlRaw(r.label)}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
+      html += `<tr class="subtotal-row"><td colspan="2">${escHtmlRaw(up(r.label))}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
     } else if (r.type === 'grandtotal') {
-      html += `<tr class="grandtotal-row"><td colspan="2">${escHtmlRaw(r.label)}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
+      html += `<tr class="grandtotal-row"><td colspan="2">${escHtmlRaw(up(r.label))}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
     }
   });
 
