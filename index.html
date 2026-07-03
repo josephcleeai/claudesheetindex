@@ -556,10 +556,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <thead>
           <tr>
             <th style="width:80px;text-align:left">Order</th>
-            <th style="text-align:left">Discipline Name</th>
-            <th style="width:260px;text-align:left">Disciplines Sort Order</th>
-            <th style="width:100px;text-align:left">Prefix</th>
-            <th style="width:72px;text-align:right">Delete</th>
+            <th style="width:180px;text-align:left">Discipline Name</th>
+            <th style="width:320px;text-align:left">Disciplines Sort Order</th>
+            <th style="width:130px;text-align:left">Prefix</th>
+            <th style="width:90px;text-align:right">Delete</th>
           </tr>
         </thead>
         <tbody id="disc-tbody"></tbody>
@@ -744,8 +744,7 @@ let S = {
 };
 
 const DEFAULT_DISCIPLINES = [
-  {order:'000',name:'Cover Sheet',prefix:'X0'},
-  {order:'001',name:'Drawing Index',prefix:'X1'},
+  {order:'000',name:'Cover Drawing Index',prefix:'X0'},
   {order:'011',name:'Life Safety',prefix:'LS'},
   {order:'101',name:'Site Development',prefix:'SID'},
   {order:'110',name:'Civil Demolition',prefix:'CD'},
@@ -1171,7 +1170,7 @@ function renderDisciplines() {
       <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:60px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
       <td style="text-align:left"><span class="mono" style="display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px" title="Auto-generated from Order and Discipline Name">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
-      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:70px"/></td>
+      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:100px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `).join('');
@@ -1651,7 +1650,7 @@ function renderFileList() {
               <div style="display:flex;align-items:center;gap:5px">
                 <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
                   <option value="">— unassigned —</option>
-                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${d.prefix} — ${escHtml(d.name)}</option>`).join('')}
+                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`).join('')}
                 </select>
                 ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
               </div>
