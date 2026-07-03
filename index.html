@@ -557,6 +557,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
           <tr>
             <th style="width:80px">Order</th>
             <th>Discipline Name</th>
+            <th style="width:170px">Disciplines Sort Order</th>
             <th style="width:100px">Prefix</th>
             <th style="width:72px">Delete</th>
           </tr>
@@ -706,10 +707,10 @@ function saveDB() {
 }
 
 // ── Sidebar "last updated" timestamp ──────────────────────────────
-// Format: YYYY-MM-DD-mm-ss (year-month-day-minute-second).
+// Format: YYYY-MM-DD-hh-mm-ss (year-month-day-hour24-minute-second).
 function fmtStamp(d) {
   const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
 // Record "now" as the latest update and refresh the sidebar display.
@@ -1169,6 +1170,7 @@ function renderDisciplines() {
     <tr data-prefix="${escHtml(d.prefix)}">
       <td><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:60px"/></td>
       <td><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
+      <td><span class="mono" style="color:var(--text2);font-size:12px" title="Auto-generated from Order and Discipline Name">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
       <td><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:70px"/></td>
       <td><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
