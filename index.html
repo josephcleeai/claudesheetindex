@@ -555,11 +555,12 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <table class="data-table" id="disc-table">
         <thead>
           <tr>
-            <th style="width:80px">Order</th>
-            <th>Discipline Name</th>
-            <th style="width:170px">Disciplines Sort Order</th>
-            <th style="width:100px">Prefix</th>
-            <th style="width:72px">Delete</th>
+            <th style="width:80px;text-align:left">Order</th>
+            <th style="text-align:left">Discipline Name</th>
+            <th style="width:160px;text-align:left">Cover / Drawing Index</th>
+            <th style="width:260px;text-align:left">Disciplines Sort Order</th>
+            <th style="width:100px;text-align:left">Prefix</th>
+            <th style="width:72px;text-align:right">Delete</th>
           </tr>
         </thead>
         <tbody id="disc-tbody"></tbody>
@@ -567,7 +568,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
   </div>
   <div class="view-footer">
-    <button class="btn btn-primary btn-nav" onclick="saveDisciplines()">Save</button>
+    <button class="btn btn-primary btn-nav" onclick="saveDisciplines()">Update / Save</button>
   </div>
 </div>
 
@@ -1168,11 +1169,12 @@ function renderDisciplines() {
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => `
     <tr data-prefix="${escHtml(d.prefix)}">
-      <td><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:60px"/></td>
-      <td><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
-      <td><span class="mono" style="color:var(--text2);font-size:12px" title="Auto-generated from Order and Discipline Name">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
-      <td><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:70px"/></td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
+      <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:60px"/></td>
+      <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
+      <td style="text-align:left"><input value="${escHtml(d.cover||'')}" onchange="updateDisc('${escHtml(d.prefix)}','cover',this.value)"/></td>
+      <td style="text-align:left"><span class="mono" style="display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px" title="Auto-generated from Order and Cover / Drawing Index">${escHtml(d.order)}-${escHtml(d.cover||'')}</span></td>
+      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:70px"/></td>
+      <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `).join('');
   _updateSortBtnState('disc-sort', S._discSortDir);
@@ -1194,7 +1196,13 @@ function _updateSortBtnState(idPrefix, dir) {
 
 function updateDisc(prefix, field, val) {
   const d = S.project.disciplines.find(x => String(x.prefix) === String(prefix));
-  if (d) { d[field] = String(val).trim(); markDirty('disciplines'); }
+  if (d) {
+    d[field] = String(val).trim();
+    markDirty('disciplines');
+    // Order and Cover/Drawing Index feed the derived Disciplines Sort Order —
+    // re-render so it updates immediately without waiting for a manual refresh.
+    if (field === 'order' || field === 'cover') renderDisciplines();
+  }
 }
 
 function updateDiscPrefix(oldPrefix, newPrefix) {
@@ -1215,7 +1223,7 @@ function updateDiscPrefix(oldPrefix, newPrefix) {
 }
 
 function addDiscipline() {
-  S.project.disciplines.push({order:'999', name:'New Discipline', prefix:'ND'+uid().slice(0,2).toUpperCase()});
+  S.project.disciplines.push({order:'999', name:'New Discipline', cover:'', prefix:'ND'+uid().slice(0,2).toUpperCase()});
   renderDisciplines();
   markDirty('disciplines');
 }
