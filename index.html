@@ -289,7 +289,7 @@ select.form-input{cursor:pointer}
   border:1px solid var(--border);padding:12px 14px;
   display:flex;align-items:center;gap:12px;margin-bottom:8px;
 }
-.pkg-inputs{flex:1;display:grid;grid-template-columns:1fr 160px;gap:10px}
+.pkg-inputs{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* Sheet schedule preview */
 .schedule-header{
@@ -555,10 +555,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <table class="data-table" id="disc-table">
         <thead>
           <tr>
-            <th style="width:200px;text-align:left">Order</th>
-            <th style="width:200px;text-align:left">Discipline Name</th>
+            <th style="width:120px;text-align:left">Order</th>
+            <th style="width:360px;text-align:left">Discipline Name</th>
             <th style="width:200px;text-align:left">Disciplines Sort Order</th>
-            <th style="width:200px;text-align:left">Prefix</th>
+            <th style="width:120px;text-align:left">Prefix</th>
             <th style="width:90px;text-align:right">Delete</th>
           </tr>
         </thead>
@@ -744,7 +744,7 @@ let S = {
 };
 
 const DEFAULT_DISCIPLINES = [
-  {order:'000',name:'Cover Drawing Index',prefix:'X0'},
+  {order:'001',name:'Cover Drawing Index',prefix:'X0'},
   {order:'011',name:'Life Safety',prefix:'LS'},
   {order:'101',name:'Site Development',prefix:'SID'},
   {order:'110',name:'Civil Demolition',prefix:'CD'},
@@ -1167,10 +1167,10 @@ function renderDisciplines() {
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => `
     <tr data-prefix="${escHtml(d.prefix)}">
-      <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:120px"/></td>
+      <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:80px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
       <td style="text-align:left"><span class="mono" style="display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px" title="Auto-generated from Order and Discipline Name">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
-      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:160px"/></td>
+      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `).join('');
@@ -1631,14 +1631,14 @@ function renderFileList() {
     <table class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
-        <th style="width:22%">Sheet #</th><th style="width:22%">Sheet Name</th>
-        <th style="width:22%">
+        <th style="width:18%">Sheet #</th><th style="width:30%">Sheet Name</th>
+        <th style="width:24%">
           <div style="display:flex;align-items:center;gap:7px">
-            <span>Discipline</span>
+            <span>Discipline Sort Order</span>
             <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ Auto Assign</button>
           </div>
         </th>
-        <th style="width:22%">Source File</th><th style="width:72px">Delete</th>
+        <th style="width:18%">Source File</th><th style="width:72px">Delete</th>
       </tr></thead>
       <tbody>
         ${sheets.map(s => `
