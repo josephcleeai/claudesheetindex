@@ -510,6 +510,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:4px">Format: CC-YYMMDD-hhmm · CC = country code · YY = year · MM = month · DD = day · hh = hour · mm = minute</div>
       </div>
+      <div id="project-form-actions" style="display:flex;gap:8px;align-items:center;margin-top:4px"></div>
     </div><!-- /.form column -->
 
     <!-- Saved projects panel -->
@@ -520,9 +521,6 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
 
     </div><!-- /.flex row -->
-  </div>
-  <div class="view-footer">
-    <button class="btn btn-primary btn-nav" onclick="saveProject()">Save</button>
   </div>
 </div>
 
@@ -740,7 +738,8 @@ let S = {
   _selectedSheets: new Set(),
   _schedSel: new Set(),      // selected sheetNums in Level 6 schedule
   _discSortDir: 'asc',       // Level 3 disciplines: 'asc' | 'desc' by Order #
-  _sheetSortDir: 'asc'       // Level 5 uploaded sheets: 'asc' | 'desc' by Discipline order, then Sheet #
+  _sheetSortDir: 'asc',      // Level 5 uploaded sheets: 'asc' | 'desc' by Discipline order, then Sheet #
+  _editingProjectId: null    // Level 2: id of saved project currently loaded into the form for editing, or null when the form is in "create new" mode
 };
 
 const DEFAULT_DISCIPLINES = [
@@ -1026,21 +1025,85 @@ function initProject() {
   document.getElementById('proj-num').value = genProjectNum();
   setAlert('proj-alert', '');
   S.dirty['project'] = false;
+  S._editingProjectId = null;
+  renderProjectFormActions();
 }
 
-function saveProject(silent) {
+// Renders the primary action button below Project Number: "+ Create Project"
+// in normal (new-project) mode, or "Save Changes" / "Cancel Edit" while
+// editing an existing saved project's information (see editProject()).
+function renderProjectFormActions() {
+  const wrap = document.getElementById('project-form-actions');
+  if (!wrap) return;
+  if (S._editingProjectId) {
+    wrap.innerHTML = `
+      <button class="btn btn-primary" onclick="saveProjectEdits()">Save Changes</button>
+      <button class="btn btn-sm" onclick="cancelEditProject()">Cancel Edit</button>
+    `;
+  } else {
+    wrap.innerHTML = `<button class="btn btn-primary" onclick="createProject()">+ Create Project</button>`;
+  }
+}
+
+// Validates the shared project form fields. Returns {name, num} on success,
+// or null (after showing the appropriate alert/modal) on failure.
+// `excludeId` lets the duplicate-number check ignore the project being edited.
+function _readProjectForm(excludeId) {
   const name = document.getElementById('proj-name').value.trim();
   const num = document.getElementById('proj-num').value.trim();
-  if (!name) { setAlert('proj-alert', 'Project name is required.', 'danger'); return false; }
-  if (!num) { setAlert('proj-alert', 'Project number is required.', 'danger'); return false; }
-  if (num.length > 14) { setAlert('proj-alert', 'Project number must be 14 characters or less.', 'danger'); return false; }
-  const dup = DB.projects.find(p => p.num === num && p.id !== S.project?.id);
+  if (!name) { setAlert('proj-alert', 'Project name is required.', 'danger'); return null; }
+  if (!num) { setAlert('proj-alert', 'Project number is required.', 'danger'); return null; }
+  if (num.length > 14) { setAlert('proj-alert', 'Project number must be 14 characters or less.', 'danger'); return null; }
+  const dup = DB.projects.find(p => p.num === num && p.id !== excludeId);
   if (dup) {
     showModal('Duplicate Project Number',
-      `Project number "${num}" is already in use. Please use a different number.`,
+      `Project number "${escHtml(num)}" is already in use. Please use a different number.`,
       [{label:'OK', primary:true, action:closeModal}]);
-    return false;
+    return null;
   }
+  return { name, num };
+}
+
+// Always creates a brand-new project from the current form contents,
+// regardless of whether another project happens to be active. This is the
+// handler for the "+ Create Project" button below Project Number.
+function createProject() {
+  const fields = _readProjectForm(null);
+  if (!fields) return;
+  const newProj = {
+    id: uid(),
+    ownerId: S.user.id,
+    disciplines: JSON.parse(JSON.stringify(DEFAULT_DISCIPLINES)),
+    packages: JSON.parse(JSON.stringify(DEFAULT_PACKAGES)),
+    statuses: JSON.parse(JSON.stringify(DEFAULT_STATUSES)),
+    sheets: [],
+    created: Date.now(),
+    order: Date.now(),
+    name: fields.name,
+    num: fields.num,
+    country: document.getElementById('proj-country').value,
+    state: document.getElementById('proj-state').value,
+    city: document.getElementById('proj-city').value,
+    zip: document.getElementById('proj-zip').value
+  };
+  DB.projects.push(newProj);
+  S.project = newProj;
+  saveDB();
+  S.dirty['project'] = false;
+  document.getElementById('proj-badge').textContent = fields.num;
+  unlockUpTo('disciplines');
+  renderSavedProjects();
+  updateActiveProjPills();
+  setAlert('proj-alert', 'Project created.', 'success');
+}
+
+// Kept for internal use only (dirty-navigation guard, sign-out guard, and the
+// "Save and switch" option when loading a different project): creates a
+// project if none is active yet, otherwise updates the currently active one.
+// Not wired to any visible button — the bottom Save button has been removed.
+function saveProject(silent) {
+  const fields = _readProjectForm(S.project?.id);
+  if (!fields) return false;
   if (!S.project) {
     S.project = {
       id: uid(),
@@ -1049,24 +1112,94 @@ function saveProject(silent) {
       packages: JSON.parse(JSON.stringify(DEFAULT_PACKAGES)),
       statuses: JSON.parse(JSON.stringify(DEFAULT_STATUSES)),
       sheets: [],
-      created: Date.now()
+      created: Date.now(),
+      order: Date.now()
     };
     DB.projects.push(S.project);
   }
-  S.project.name = name;
-  S.project.num = num;
+  S.project.name = fields.name;
+  S.project.num = fields.num;
   S.project.country = document.getElementById('proj-country').value;
   S.project.state = document.getElementById('proj-state').value;
   S.project.city = document.getElementById('proj-city').value;
   S.project.zip = document.getElementById('proj-zip').value;
   saveDB();
   S.dirty['project'] = false;
-  document.getElementById('proj-badge').textContent = num;
+  document.getElementById('proj-badge').textContent = fields.num;
   unlockUpTo('disciplines');
   renderSavedProjects();
   updateActiveProjPills();
   if (!silent) setAlert('proj-alert', 'Project saved.', 'success');
   return true;
+}
+
+// Loads a saved project's info into the form for editing, WITHOUT making it
+// the active project and WITHOUT navigating away from Level 2. Pairs with
+// saveProjectEdits() / cancelEditProject().
+function editProject(id) {
+  const p = DB.projects.find(x => x.id === id);
+  if (!p) return;
+  S._editingProjectId = id;
+  document.getElementById('proj-name').value = p.name || '';
+  document.getElementById('proj-num').value = p.num || '';
+  document.getElementById('proj-state').value = p.state || '';
+  document.getElementById('proj-city').value = p.city || '';
+  document.getElementById('proj-zip').value = p.zip || '';
+  const countryEl = document.getElementById('proj-country');
+  if (countryEl) countryEl.value = p.country || 'us';
+  S.dirty['project'] = false;
+  setAlert('proj-alert', `Editing "${escHtml(p.num)} — ${escHtml(p.name)}". Update the fields and click Save Changes.`, 'info');
+  renderProjectFormActions();
+  renderSavedProjects();
+}
+
+// Writes the form's current values back onto the project being edited
+// (identified by S._editingProjectId), then returns the form to "create new".
+function saveProjectEdits() {
+  const id = S._editingProjectId;
+  const p = DB.projects.find(x => x.id === id);
+  if (!p) { cancelEditProject(); return; }
+  const fields = _readProjectForm(id);
+  if (!fields) return;
+  p.name = fields.name;
+  p.num = fields.num;
+  p.country = document.getElementById('proj-country').value;
+  p.state = document.getElementById('proj-state').value;
+  p.city = document.getElementById('proj-city').value;
+  p.zip = document.getElementById('proj-zip').value;
+  saveDB();
+  if (S.project && S.project.id === p.id) {
+    document.getElementById('proj-badge').textContent = p.num;
+    updateActiveProjPills();
+  }
+  initProject(); // resets S._editingProjectId, clears/repopulates the form, re-renders actions
+  renderSavedProjects();
+  setAlert('proj-alert', 'Project updated.', 'success');
+}
+
+// Discards edit mode without saving and returns the form to "create new".
+function cancelEditProject() {
+  initProject();
+  renderSavedProjects();
+}
+
+// Swaps the manual sort position of a saved project with its neighbor.
+// dir: -1 to move up, +1 to move down.
+function moveProject(id, dir) {
+  if (!S.user) return;
+  const owned = DB.projects
+    .filter(p => p.ownerId === S.user.id)
+    .sort((a, b) => (a.order ?? a.created ?? 0) - (b.order ?? b.created ?? 0));
+  const i = owned.findIndex(p => p.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= owned.length) return;
+  const a = owned[i], b = owned[j];
+  const aOrder = (a.order ?? a.created ?? 0);
+  const bOrder = (b.order ?? b.created ?? 0);
+  a.order = bOrder;
+  b.order = aOrder;
+  saveDB();
+  renderSavedProjects();
 }
 
 function renderSavedProjects() {
@@ -1076,20 +1209,26 @@ function renderSavedProjects() {
   if (!list) return;
   const userProjects = DB.projects
     .filter(p => p.ownerId === S.user.id)
-    .sort((a, b) => (a.num || '').localeCompare(b.num || '', 'en', {sensitivity:'base'}));
+    .sort((a, b) => (a.order ?? a.created ?? 0) - (b.order ?? b.created ?? 0));
   if (!userProjects.length) {
     list.innerHTML = '';
     if (empty) empty.style.display = '';
     return;
   }
   if (empty) empty.style.display = 'none';
-  list.innerHTML = userProjects.map(p => {
+  list.innerHTML = userProjects.map((p, i) => {
     const city = p.city ? ` — ${escHtml(p.city)}` : '';
     const isActive = S.project && S.project.id === p.id;
-    return `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:var(--radius);border:1px solid ${isActive ? 'var(--accent)' : 'var(--border)'};background:${isActive ? 'var(--accent-light)' : 'var(--surface)'}">
+    const isEditing = S._editingProjectId === p.id;
+    const borderColor = isEditing ? 'var(--blue)' : (isActive ? 'var(--accent)' : 'var(--border)');
+    const bgColor = isEditing ? 'var(--blue-bg)' : (isActive ? 'var(--accent-light)' : 'var(--surface)');
+    return `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:var(--radius);border:1px solid ${borderColor};background:${bgColor}">
       <a href="#" onclick="loadProject('${p.id}');return false;"
         style="flex:1;min-width:0;font-size:12px;font-family:var(--mono);color:${isActive ? 'var(--accent)' : 'var(--blue)'};text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4"
         title="${escHtml(p.num)} — ${escHtml(p.name)}${city}">${escHtml(p.num)} — ${escHtml(p.name)}${city}</a>
+      <button class="btn btn-sm btn-icon" onclick="moveProject('${p.id}',-1)" title="Move up" style="flex-shrink:0${i === 0 ? ';opacity:0.4;cursor:not-allowed' : ''}" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="btn btn-sm btn-icon" onclick="moveProject('${p.id}',1)" title="Move down" style="flex-shrink:0${i === userProjects.length - 1 ? ';opacity:0.4;cursor:not-allowed' : ''}" ${i === userProjects.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="btn btn-sm" onclick="editProject('${p.id}')" title="Edit project info" style="flex-shrink:0">Edit</button>
       <button class="btn btn-sm btn-danger btn-icon" onclick="confirmDeleteProject('${p.id}')" title="Delete project" style="flex-shrink:0">×</button>
     </div>`;
   }).join('');
@@ -1102,6 +1241,7 @@ function loadProject(id) {
   const curStep = cur ? cur.id.replace('view-','') : '';
   function doLoad() {
     S.project = p;
+    S._editingProjectId = null;
     document.getElementById('proj-name').value = p.name || '';
     document.getElementById('proj-num').value = p.num || '';
     document.getElementById('proj-state').value = p.state || '';
@@ -1112,6 +1252,7 @@ function loadProject(id) {
     S.dirty['project'] = false;
     document.getElementById('proj-badge').textContent = p.num || '';
     unlockUpTo('disciplines');
+    renderProjectFormActions();
     setAlert('proj-alert', `Project "${escHtml(p.num)}" loaded.`, 'success');
     renderSavedProjects();
     updateActiveProjPills();
@@ -1146,6 +1287,8 @@ function confirmDeleteProject(id) {
           document.querySelectorAll('.nav-item[data-step]').forEach(n => {
             if (!['login','project'].includes(n.dataset.step)) n.classList.add('locked');
           });
+        } else if (S._editingProjectId === id) {
+          initProject();
         }
         saveDB();
         renderSavedProjects();
