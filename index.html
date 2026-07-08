@@ -788,12 +788,25 @@ const DEFAULT_PACKAGES = [
 ];
 
 const DEFAULT_STATUSES = [
-  {id:1,name:'Not for Construction'},
-  {id:2,name:'Issued for Construction'},
-  {id:3,name:'To Be Decided 1'},
-  {id:4,name:'To Be Decided 2'},
-  {id:5,name:'To Be Decided 3'},
+  {id:1,name:'Not for Construction = ○',symbol:'○'},
+  {id:2,name:'Issued for Construction = ●',symbol:'●'},
+  {id:3,name:'To Be Decided 1 = □',symbol:'□'},
+  {id:4,name:'To Be Decided 2 = ■',symbol:'■'},
+  {id:5,name:'Removed = ✕',symbol:'✕'},
 ];
+
+// Fallback symbols for the 5 default status ids, used when a project's saved
+// statuses predate the `symbol` field (so legacy data still renders symbols
+// instead of raw numbers). Any custom status beyond id 5 without an explicit
+// symbol falls back to showing its numeric id, same as the old behavior.
+const FALLBACK_STATUS_SYMBOLS = {1:'○',2:'●',3:'□',4:'■',5:'✕'};
+
+function statusSymbolFor(statusId) {
+  if (statusId == null || statusId === '') return '';
+  const st = S.project?.statuses?.find(x => x.id === statusId);
+  if (st && st.symbol) return st.symbol;
+  return FALLBACK_STATUS_SYMBOLS[statusId] || String(statusId);
+}
 
 function uid() { return Math.random().toString(36).slice(2,9); }
 
@@ -1893,6 +1906,7 @@ function renderStatusDefs() {
   el.innerHTML = S.project.statuses.map(st => `
     <div style="display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px">
       <input value="${escHtml(st.name)}" style="border:none;background:transparent;font-size:13px;color:var(--text);min-width:80px;flex:1" onchange="updateStatus(${st.id},'name',this.value);saveDB()"/>
+      <input value="${escHtml(st.symbol || FALLBACK_STATUS_SYMBOLS[st.id] || '')}" title="Symbol shown in the schedule grid" style="border:1px solid var(--border);background:var(--surface2);border-radius:var(--radius);font-size:13px;color:var(--text);width:36px;text-align:center;flex-shrink:0" maxlength="2" onchange="updateStatus(${st.id},'symbol',this.value);saveDB();renderSchedule()"/>
       <button onclick="deleteStatus(${st.id})" title="Delete this status" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;line-height:1;padding:0 2px" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</button>
     </div>
   `).join('');
@@ -1905,7 +1919,7 @@ function updateStatus(id, field, val) {
 
 function addStatus() {
   const maxId = S.project.statuses.reduce((m, s) => Math.max(m, s.id), 0);
-  S.project.statuses.push({ id: maxId + 1, name: 'New Status' });
+  S.project.statuses.push({ id: maxId + 1, name: 'New Status', symbol: '○' });
   saveDB();
   renderStatusDefs();
   renderSchedule(); // refresh pkg status selectors
@@ -1975,10 +1989,10 @@ function renderSchedule() {
 
   // ── Dynamic status options ──────────────────────────────────────
   const statusOptsFn = (selectedId) => S.project.statuses.map(st =>
-    `<option value="${st.id}" ${selectedId === st.id ? 'selected' : ''}>${st.id}</option>`
+    `<option value="${st.id}" ${selectedId === st.id ? 'selected' : ''}>${escHtml(statusSymbolFor(st.id))}</option>`
   ).join('');
   const pkgStatusOpts = S.project.statuses.map(st =>
-    `<option value="${st.id}">${st.id}</option>`
+    `<option value="${st.id}">${escHtml(statusSymbolFor(st.id))}</option>`
   ).join('');
 
   // ── Header ───────────────────────────────────────────────────────
@@ -2147,8 +2161,8 @@ function applyPkgStatus(pkgId, val) {
   saveDB();
   renderSchedule();
   const msg = selectedInPkg.length > 0
-    ? `Status set to ${statusId} on ${targets.length} selected sheet${targets.length !== 1 ? 's' : ''}.`
-    : `Status set to ${statusId} on all ${targets.length} sheets in this package.`;
+    ? `Status set to ${escHtml(statusSymbolFor(statusId))} on ${targets.length} selected sheet${targets.length !== 1 ? 's' : ''}.`
+    : `Status set to ${escHtml(statusSymbolFor(statusId))} on all ${targets.length} sheets in this package.`;
   setAlert('status-bulk-alert', msg, 'success');
 }
 
@@ -2237,7 +2251,7 @@ function getScheduleRows() {
         const sheetId = row.pkgMap[p.id];
         if (!sheetId) return '';
         const sh = S.project.sheets.find(s => s.id === sheetId);
-        return sh ? (sh.statusId || '') : '';
+        return sh ? statusSymbolFor(sh.statusId) : '';
       });
       out.push({ type: 'sheet', sheetNum: row.sheetNum, sheetName: row.sheetName, statusValues });
     });
@@ -2295,12 +2309,12 @@ function getScheduleData() {
       'Project Number':    S.project.num,
       'Project Name':      S.project.name,
     };
-    // One column per package — numeric status value only (1/2/3/4), blank if sheet not in package
+    // One column per package — status symbol only (○ ● □ ■ ✕), blank if sheet not in package
     packages.forEach(p => {
       const s        = pkgMap[p.id];
       const statusId = s ? (s.statusId || 1) : null;
       const colKey   = `${p.name} (${p.due})`;
-      row[colKey]    = statusId != null ? statusId : '';
+      row[colKey]    = statusId != null ? statusSymbolFor(statusId) : '';
     });
     return row;
   });
