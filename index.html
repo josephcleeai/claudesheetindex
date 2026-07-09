@@ -1988,7 +1988,12 @@ function renderSchedule() {
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
   // ── Deduplicate: one canonical row per sheetNum ─────────────
-  const sheetMap = new Map(); // sheetNum → { sheetNum, sheetName, discipline, pkgMap: { pkgId → sheetId } }
+  // Sheet Name rule: when the same sheet number exists in multiple packages,
+  // the LATEST package's name wins (latest = furthest down the Level 4 list,
+  // i.e. the rightmost column). Earlier packages' names are replaced.
+  const pkgIdx = {};
+  S.project.packages.forEach((p, i) => { pkgIdx[p.id] = i; });
+  const sheetMap = new Map(); // sheetNum → { sheetNum, sheetName, discipline, pkgMap: { pkgId → sheetId }, _nameIdx }
   [...S.project.sheets]
     .sort((a, b) => {
       const da = discOrder[a.discipline] || 9999;
@@ -1997,8 +2002,12 @@ function renderSchedule() {
       return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
     })
     .forEach(s => {
+      const idx = pkgIdx[s.packageId] ?? -1;
       if (!sheetMap.has(s.sheetNum)) {
-        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {} });
+        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {}, _nameIdx: idx });
+      } else {
+        const row = sheetMap.get(s.sheetNum);
+        if (idx >= row._nameIdx) { row.sheetName = s.sheetName; row._nameIdx = idx; }
       }
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
     });
@@ -2235,6 +2244,9 @@ function getScheduleRows() {
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
+  // Latest package's Sheet Name wins for duplicate sheet numbers — mirrors renderSchedule
+  const pkgIdx = {};
+  S.project.packages.forEach((p, i) => { pkgIdx[p.id] = i; });
   const sheetMap = new Map();
   [...S.project.sheets]
     .sort((a, b) => {
@@ -2244,8 +2256,12 @@ function getScheduleRows() {
       return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
     })
     .forEach(s => {
+      const idx = pkgIdx[s.packageId] ?? -1;
       if (!sheetMap.has(s.sheetNum)) {
-        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {} });
+        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {}, _nameIdx: idx });
+      } else {
+        const row = sheetMap.get(s.sheetNum);
+        if (idx >= row._nameIdx) { row.sheetName = s.sheetName; row._nameIdx = idx; }
       }
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
     });
@@ -2311,7 +2327,11 @@ function getScheduleData() {
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
-  // Build deduplicated sheet map — same logic as renderSchedule
+  // Build deduplicated sheet map — same logic as renderSchedule.
+  // Latest package's Sheet Name wins for duplicate sheet numbers; all other
+  // fields (discipline, etc.) keep their existing first-encountered behavior.
+  const pkgIdx = {};
+  packages.forEach((p, i) => { pkgIdx[p.id] = i; });
   const sheetMap = new Map();
   [...S.project.sheets]
     .sort((a, b) => {
@@ -2321,17 +2341,21 @@ function getScheduleData() {
       return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
     })
     .forEach(s => {
+      const idx = pkgIdx[s.packageId] ?? -1;
       if (!sheetMap.has(s.sheetNum)) {
-        sheetMap.set(s.sheetNum, { ref: s, pkgMap: {} });
+        sheetMap.set(s.sheetNum, { ref: s, name: s.sheetName, pkgMap: {}, _nameIdx: idx });
+      } else {
+        const row = sheetMap.get(s.sheetNum);
+        if (idx >= row._nameIdx) { row.name = s.sheetName; row._nameIdx = idx; }
       }
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s;
     });
 
-  return [...sheetMap.values()].map(({ ref, pkgMap }) => {
+  return [...sheetMap.values()].map(({ ref, name, pkgMap }) => {
     const disc = S.project.disciplines.find(d => d.prefix === ref.discipline);
     const row  = {
       'Sheet Number':      ref.sheetNum,
-      'Sheet Name':        ref.sheetName,
+      'Sheet Name':        name,
       'Discipline Prefix': ref.discipline || '',
       'Discipline Name':   disc ? disc.name : '',
       'Project Number':    S.project.num,
