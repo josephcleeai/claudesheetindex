@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -254,6 +255,19 @@ select.form-input{cursor:pointer}
 .alert-success{background:var(--green-bg);color:var(--green);border-color:#C0DD97}
 .alert-info{background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4}
 
+/* Upload drop zone */
+#drop-zone{
+  border:2px dashed var(--border2);border-radius:var(--radius-lg);
+  padding:48px 32px;text-align:center;cursor:pointer;
+  transition:all .15s;
+}
+#drop-zone:hover,#drop-zone.drag-over{
+  border-color:var(--accent);background:var(--surface2);
+}
+#drop-zone svg{margin:0 auto 14px;display:block;opacity:0.4}
+.drop-title{font-family:var(--display);font-size:15px;font-weight:600;margin-bottom:6px}
+.drop-sub{font-size:12px;color:var(--text3)}
+
 /* Login screen */
 #view-login{background:var(--bg)}
 .login-wrap{
@@ -320,7 +334,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
-/* Sort direction toggle buttons (used by Level 3 disciplines) */
+/* Sort direction toggle buttons (shared by Level 3 and Level 5) */
 .sort-btn-active{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
 </style>
 </head>
@@ -350,8 +364,12 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <div class="nav-num">4</div>
       <div class="nav-label">Packages</div>
     </div>
-    <div class="nav-item locked" data-step="status" onclick="tryNav('status')">
+    <div class="nav-item locked" data-step="upload" onclick="tryNav('upload')">
       <div class="nav-num">5</div>
+      <div class="nav-label">Upload</div>
+    </div>
+    <div class="nav-item locked" data-step="status" onclick="tryNav('status')">
+      <div class="nav-num">6</div>
       <div class="nav-label">Review / Export</div>
     </div>
   </div>
@@ -556,7 +574,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Project Packages</div>
-      <div class="view-sub">Define submission packages with due dates.</div>
+      <div class="view-sub">Define submission packages with due dates and upload drawing sets.</div>
     </div>
     <div id="pill-packages" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -574,11 +592,55 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   </div>
   <div class="view-footer">
     <button class="btn btn-primary btn-nav" onclick="savePackages()">Save</button>
-    <button class="btn btn-nav" onclick="saveAndNext('packages','status')">Review / Export →</button>
   </div>
 </div>
 
-<!-- VIEW 5: STATUS / EXPORT -->
+<!-- VIEW 5: UPLOAD -->
+<div id="view-upload" class="view">
+  <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+    <div>
+      <div class="view-title">Upload Drawing Files</div>
+      <div class="view-sub">Upload individual PDF sheets. Files named <span style="font-family:var(--mono);font-size:12px">A101__Floor Plan.pdf</span> auto-populate sheet number, name, and discipline.</div>
+    </div>
+    <div id="pill-upload" class="active-proj-pill" title="Active project">
+      <span class="active-proj-pill-dot"></span>
+      <span class="active-proj-pill-num" id="pill-upload-num"></span>
+      <span class="active-proj-pill-sep">·</span>
+      <span class="active-proj-pill-name" id="pill-upload-name"></span>
+    </div>
+  </div>
+  <div class="view-body">
+    <div id="upload-alert"></div>
+    <div id="drop-zone" onclick="triggerFileInput()">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <polyline points="9 15 12 12 15 15"/>
+      </svg>
+      <div class="drop-title">Drop PDF files here</div>
+      <div class="drop-sub">Or click to browse · Up to 150 PDFs per batch · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
+    </div>
+    <div id="extraction-progress" style="display:none;margin-top:12px">
+      <div id="ext-label" style="font-size:12px;color:var(--text2);margin-bottom:6px">Extracting sheet data…</div>
+      <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="ext-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s"></div>
+      </div>
+    </div>
+    <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
+    <div style="margin-top:10px">
+      <button class="btn btn-sm" onclick="addManualSheetUpload()">+ Add Sheet Manually</button>
+    </div>
+    <div id="file-list" style="margin-top:18px"></div>
+  </div>
+  <div class="view-footer">
+    <button class="btn btn-nav" onclick="tryNav('packages')">Packages</button>
+    <button class="btn btn-primary btn-nav" onclick="saveUpload()">Save</button>
+    <button class="btn btn-nav" onclick="saveAndNext('upload','status')">Review / Export →</button>
+  </div>
+</div>
+
+<!-- VIEW 6: STATUS / EXPORT -->
 <div id="view-status" class="view">
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
@@ -672,8 +734,11 @@ let S = {
   project: null,
   dirty: {},
   pendingNav: null,
-  _schedSel: new Set(),      // selected sheetNums in Level 5 schedule
+  _uploadPkgId: null,
+  _selectedSheets: new Set(),
+  _schedSel: new Set(),      // selected sheetNums in Level 6 schedule
   _discSortDir: 'asc',       // Level 3 disciplines: 'asc' | 'desc' by Order #
+  _sheetSortDir: 'asc',      // Level 5 uploaded sheets: 'asc' | 'desc' by Discipline order, then Sheet #
   _editingProjectId: null    // Level 2: id of saved project currently loaded into the form for editing, or null when the form is in "create new" mode
 };
 
@@ -748,7 +813,7 @@ function uid() { return Math.random().toString(36).slice(2,9); }
 // ================================================================
 // NAVIGATION
 // ================================================================
-const STEP_ORDER = ['login','project','disciplines','packages','status'];
+const STEP_ORDER = ['login','project','disciplines','packages','upload','status'];
 
 function tryNav(step) {
   if (!S.user && step !== 'login') return;
@@ -780,6 +845,7 @@ function goTo(step) {
   });
   if (step === 'disciplines' && S.project) renderDisciplines();
   if (step === 'packages' && S.project) renderPackages();
+  if (step === 'upload' && S.project) { S._selectedSheets = new Set(); renderFileList(); }
   if (step === 'status' && S.project) { S._schedSel = new Set(); renderStatusDefs(); renderSchedule(); }
 }
 
@@ -795,6 +861,7 @@ function saveCurrent(step) {
   if (step === 'project') saveProject(true);
   else if (step === 'disciplines') saveDisciplines(true);
   else if (step === 'packages') savePackages(true);
+  else if (step === 'upload') saveUpload(true);
 }
 
 function saveAndNext(cur, next) {
@@ -834,7 +901,7 @@ function tryExit() {
 function markDirty(step) { S.dirty[step] = true; }
 
 // ── ACTIVE PROJECT PILL ───────────────────────────────────────────
-const PILL_STEPS = ['project','disciplines','packages','status'];
+const PILL_STEPS = ['project','disciplines','packages','upload','status'];
 function updateActiveProjPills() {
   const hasProj = !!(S.project && S.project.num);
   const num  = hasProj ? (S.project.num  || '') : '';
@@ -1272,7 +1339,7 @@ function setDiscSortDir(dir) {
 }
 
 // Shared helper: highlight whichever sort-direction button (asc/desc) is active.
-// Used by Level 3 (disciplines).
+// Used by both Level 3 (disciplines) and Level 5 (uploaded sheets).
 function _updateSortBtnState(idPrefix, dir) {
   const ascBtn  = document.getElementById(`${idPrefix}-asc`);
   const descBtn = document.getElementById(`${idPrefix}-desc`);
@@ -1355,6 +1422,7 @@ function renderPackages() {
       <div style="display:flex;gap:6px;align-items:center">
         <button class="btn btn-sm" title="Move up" onclick="movePkg('${pkg.id}',-1)">↑</button>
         <button class="btn btn-sm" title="Move down" onclick="movePkg('${pkg.id}',1)">↓</button>
+        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--blue);border-color:#B5D4F4" onclick="openUpload('${pkg.id}')" title="Edit this package's uploaded sheets">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="deletePkg('${pkg.id}')">×</button>
       </div>
     </div>
@@ -1394,15 +1462,444 @@ function deletePkg(id) {
   ]);
 }
 
+function openUpload(pkgId) {
+  S._uploadPkgId = pkgId;
+  savePackages(true);
+  goTo('upload');
+  const pkg = S.project.packages.find(p => p.id === pkgId);
+  setAlert('upload-alert', `Uploading for package: ${pkg ? pkg.name : ''}`, 'info');
+  renderFileList();
+}
+
 function savePackages(silent) {
   saveDB(); S.dirty['packages'] = false;
-  unlockUpTo('status');
+  unlockUpTo('upload');
   if (!silent) setAlert('pkg-alert', 'Packages saved.', 'success');
   return true;
 }
 
 // ================================================================
-// STATUS / PREVIEW / EXPORT — LEVEL 5
+// UPLOAD & EXTRACTION — LEVEL 5
+// ================================================================
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+
+function triggerFileInput() { document.getElementById('file-input').click(); }
+
+const MAX_UPLOAD_BATCH = 150;
+
+async function handleFiles(files) {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  if (!pkgId) { setAlert('upload-alert', 'Please select a package first in the Packages step.', 'danger'); return; }
+
+  // Guard against re-entrancy (e.g. dropping a second batch mid-parse).
+  if (S._uploadBusy) {
+    setAlert('upload-alert', 'An upload is still in progress. Please wait for it to finish before adding more files.', 'danger');
+    return;
+  }
+
+  // --- Keep only PDFs ---
+  const pdfFiles = Array.from(files).filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (!pdfFiles.length) {
+    setAlert('upload-alert', 'No PDF files found in your selection.', 'danger');
+    return;
+  }
+
+  // --- Requirement 1: cap each upload attempt at 150 files ---
+  let cappedNote = '';
+  let batch = pdfFiles;
+  if (pdfFiles.length > MAX_UPLOAD_BATCH) {
+    batch = pdfFiles.slice(0, MAX_UPLOAD_BATCH);
+    const over = pdfFiles.length - MAX_UPLOAD_BATCH;
+    cappedNote = ` ${over} file${over !== 1 ? 's were' : ' was'} not processed — upload up to ${MAX_UPLOAD_BATCH} at a time. You can add the rest in another batch.`;
+  }
+
+  S._uploadBusy = true;
+  const progressEl = document.getElementById('extraction-progress');
+  const bar = document.getElementById('ext-bar');
+  const label = document.getElementById('ext-label');
+  progressEl.style.display = '';
+  bar.style.width = '0%';
+
+  let autoAssigned = 0;
+  let added = 0;
+  let replaced = 0;   // same sheet number, different sheet name → file + name replaced
+  let refreshed = 0;  // same sheet number + name, newer file → active version updated
+
+  for (let i = 0; i < batch.length; i++) {
+    const file = batch[i];
+
+    bar.style.width = Math.round((i / batch.length) * 100) + '%';
+    if (label) label.textContent = `Extracting sheet data… ${i + 1} of ${batch.length}`;
+
+    // --- Step 1: Parse metadata from filename (__ primary, -- secondary, _ tertiary) ---
+    const fnParsed = parseSheetFromFilename(file.name);
+    const baseName = file.name.replace(/\.pdf$/i,'');
+    const fnHasDelimiter = baseName.indexOf('__') > 0 || baseName.indexOf('--') > 0 || baseName.indexOf('_') > 0;
+
+    // --- Step 2: Attempt PDF text extraction ---
+    let extracted = [];
+    try { extracted = await extractFromPDF(file); } catch(e) { /* fall through */ }
+
+    // For each extracted page, prefer filename data when file uses underscore convention
+    const pages = extracted.length ? extracted : [fnParsed];
+    for (const sheet of pages) {
+      const sheetNum  = fnHasDelimiter ? fnParsed.sheetNum  : (sheet.sheetNum  || fnParsed.sheetNum);
+      const sheetName = fnHasDelimiter ? fnParsed.sheetName : (sheet.sheetName || fnParsed.sheetName);
+
+      // Match on sheet number within this package. This also matches records
+      // pushed earlier in THIS same batch, so a later file naturally replaces
+      // an earlier one with the same sheet number.
+      const existing = S.project.sheets.find(s => s.sheetNum === sheetNum && s.packageId === pkgId);
+
+      if (!existing) {
+        // --- New sheet number: add it, auto-assigning discipline by prefix ---
+        const discipline = guessDiscipline(sheetNum);
+        if (discipline) autoAssigned++;
+        S.project.sheets.push({
+          id: uid(), packageId: pkgId,
+          sheetNum, sheetName,
+          fileName: file.name, statusId: 1,
+          discipline,
+          _autoDisc: !!discipline   // flag for UI indicator
+        });
+        added++;
+      } else {
+        // --- Requirements 2 & 3: same sheet number already exists ---
+        // Keep the existing record (preserving its status, discipline and id),
+        // but make the most recently uploaded file the active version.
+        const nameDiffers = (existing.sheetName || '') !== (sheetName || '');
+        const fileDiffers = (existing.fileName || '').toLowerCase() !== file.name.toLowerCase();
+
+        if (nameDiffers) {
+          // Replace: newer file + updated sheet name become the active version.
+          existing.sheetName = sheetName;
+          existing.fileName  = file.name;
+          replaced++;
+        } else if (fileDiffers) {
+          // Same sheet name, newer file → keep the latest file as active version.
+          existing.fileName = file.name;
+          refreshed++;
+        }
+        // else: identical re-upload (same number, name and file) → no change.
+      }
+    }
+
+    // Yield to the event loop every few files so the page can repaint
+    // and large batches don't freeze / crash the tab.
+    if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  bar.style.width = '100%';
+  setTimeout(() => { progressEl.style.display = 'none'; if (label) label.textContent = 'Extracting sheet data…'; }, 500);
+
+  // --- Requirement 4: auto-save the project after the batch completes ---
+  // Mirrors the manual Save: persist to localStorage, clear the unsaved flag,
+  // and unlock the Status/Review step so the workflow can proceed.
+  saveDB();
+  S.dirty['upload'] = false;
+  unlockUpTo('status');
+  renderFileList();
+
+  // Reset the file input so re-selecting the same files fires onchange again.
+  const fi = document.getElementById('file-input');
+  if (fi) fi.value = '';
+  S._uploadBusy = false;
+
+  // --- Requirements 2 & 3: completion notification ---
+  // Report how many PDFs were uploaded and how much sheet data was extracted.
+  const pdfsUploaded    = batch.length;                  // PDF files processed this batch
+  const sheetsExtracted = added + replaced + refreshed;  // sheet entries pulled from those PDFs
+
+  const detail = [];
+  if (added > 0)        detail.push(`${added} added`);
+  if (replaced > 0)     detail.push(`${replaced} replaced with newer version`);
+  if (refreshed > 0)    detail.push(`${refreshed} updated to latest file`);
+  if (autoAssigned > 0) detail.push(`${autoAssigned} auto-assigned to disciplines`);
+
+  const notice =
+    `Upload complete — ${pdfsUploaded} PDF${pdfsUploaded !== 1 ? 's' : ''} uploaded, ` +
+    `${sheetsExtracted} sheet${sheetsExtracted !== 1 ? 's' : ''} extracted` +
+    (detail.length ? ` (${detail.join(' · ')})` : '') +
+    `. Project saved.` + cappedNote;
+
+  setAlert('upload-alert', notice, cappedNote ? 'danger' : 'success');
+}
+
+// Set the PDF.js worker source once, not on every file.
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+async function extractFromPDF(file) {
+  let pdf = null;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    const results = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const fullText = tc.items.map(i => i.str).join(' ');
+      results.push(parseSheetFromText(fullText, file.name, p));
+      // Release per-page resources promptly.
+      if (page.cleanup) page.cleanup();
+    }
+    return results;
+  } catch(e) {
+    return [parseSheetFromFilename(file.name)];
+  } finally {
+    // Free the document's memory so hundreds of files don't accumulate.
+    if (pdf) { try { await pdf.destroy(); } catch(_) {} }
+  }
+}
+
+function parseSheetFromText(text, filename, pageNum) {
+  const patterns = [
+    /\b([A-Z]{1,4}[-.]?\d{1,4}(?:\.\d{1,2})?)\s+[-–]?\s*([A-Z][A-Z\s,&\/\-]{3,50})/,
+    /Sheet[:\s]+([A-Z]{1,4}[-.]?\d{1,4})\s+([A-Z][A-Za-z\s,&\/\-]{3,50})/i,
+    /Drawing\s+No\.?\s*:?\s*([A-Z]{1,4}[-.]?\d{1,4})/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) return {sheetNum: m[1].replace(/\s+/g,''), sheetName: (m[2]||'').trim().replace(/\s{2,}/g,' ').slice(0,60) || 'Sheet ' + pageNum};
+  }
+  return parseSheetFromFilename(filename, pageNum);
+}
+
+function parseSheetFromFilename(fname, pageNum=1) {
+  const base = fname.replace(/\.pdf$/i,'');
+
+  // PRIMARY: split on first "__" — "A101__Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const ddIdx = base.indexOf('__');
+  if (ddIdx > 0) {
+    const sheetNum  = base.slice(0, ddIdx).trim().toUpperCase();
+    const sheetName = base.slice(ddIdx + 2).replace(/__/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // SECONDARY: split on first "--" — "A101--Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const dmIdx = base.indexOf('--');
+  if (dmIdx > 0) {
+    const sheetNum  = base.slice(0, dmIdx).trim().toUpperCase();
+    const sheetName = base.slice(dmIdx + 2).replace(/--/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // TERTIARY: split on first single "_" — "A101_Floor Plan.pdf" → sheetNum "A101", sheetName "Floor Plan"
+  const uIdx = base.indexOf('_');
+  if (uIdx > 0) {
+    const sheetNum  = base.slice(0, uIdx).trim().toUpperCase();
+    const sheetName = base.slice(uIdx + 1).replace(/_/g, ' ').trim();
+    if (sheetNum) return { sheetNum, sheetName: sheetName || 'Sheet ' + pageNum, _fromFilename: true };
+  }
+
+  // FALLBACK: collapse separators and match standard prefix+number pattern
+  const clean = base.replace(/[-_]/g, ' ');
+  const m = clean.match(/^([A-Z]{1,4}\d{2,4})\s+(.+)$/i);
+  if (m) return { sheetNum: m[1].toUpperCase(), sheetName: m[2], _fromFilename: true };
+
+  return { sheetNum: 'SH-' + pageNum, sheetName: clean.slice(0, 50) || 'Untitled Sheet', _fromFilename: true };
+}
+
+function guessDiscipline(sheetNum) {
+  if (!S.project) return '';
+  const num = String(sheetNum || '').toUpperCase();
+  if (!num) return '';
+
+  // Match against registered discipline prefixes as literal text — prefixes may be
+  // alphabetic ("ST"), numeric ("100"), or alphanumeric ("S1"); never assume a
+  // digit marks the end of the prefix. Longest prefix wins so "STD" matches
+  // before "ST" and "S" when a sheet number starts with "STD".
+  const sorted = [...S.project.disciplines]
+    .filter(d => d.prefix) // skip any blank/undefined prefixes
+    .sort((a, b) => String(b.prefix).length - String(a.prefix).length);
+
+  const disc = sorted.find(d => num.startsWith(String(d.prefix).toUpperCase()));
+  return disc ? disc.prefix : '';
+}
+
+function autoAssignAllDisciplines() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  let count = 0;
+  sheets.forEach(s => {
+    const disc = guessDiscipline(s.sheetNum);
+    if (disc && disc !== s.discipline) {
+      s.discipline = disc;
+      s._autoDisc = true;
+      count++;
+    }
+  });
+  markDirty('upload');
+  renderFileList();
+  if (count > 0) {
+    setAlert('upload-alert', `Auto-assigned ${count} sheet${count !== 1 ? 's' : ''} to disciplines based on sheet number prefix.`, 'success');
+  } else {
+    setAlert('upload-alert', 'No changes — all sheets already have matching disciplines assigned.', 'info');
+  }
+}
+
+function renderFileList() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  let sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  const el = document.getElementById('file-list');
+  if (!sheets.length) { el.innerHTML = ''; return; }
+  const pkg = S.project.packages.find(p => p.id === pkgId);
+
+  // ── Sort: Discipline order first, then Sheet # — direction toggleable ──
+  const discOrder = {};
+  S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 9999; });
+  const dir = S._sheetSortDir === 'desc' ? -1 : 1;
+  sheets = [...sheets].sort((a, b) => {
+    const da = discOrder[a.discipline] ?? 9999;
+    const db = discOrder[b.discipline] ?? 9999;
+    if (da !== db) return dir * (da - db);
+    return dir * String(a.sheetNum).localeCompare(String(b.sheetNum), 'en', { numeric: true });
+  });
+
+  // Preserve existing selection set; prune ids that no longer exist
+  const existingIds = new Set(sheets.map(s => s.id));
+  S._selectedSheets = (S._selectedSheets || new Set());
+  for (const id of [...S._selectedSheets]) { if (!existingIds.has(id)) S._selectedSheets.delete(id); }
+
+  const selCount = S._selectedSheets.size;
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">
+        ${pkg ? escHtml(pkg.name) : ''} — ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}
+        ${selCount ? `<span style="font-weight:400;color:var(--text3);font-size:11px;margin-left:8px">(${selCount} selected)</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-right:-2px">Sort</span>
+        <button class="btn btn-sm" id="sheet-sort-asc" onclick="setSheetSortDir('asc')" title="Sort ascending: Discipline order, then Sheet #" style="padding:3px 8px">↑</button>
+        <button class="btn btn-sm" id="sheet-sort-desc" onclick="setSheetSortDir('desc')" title="Sort descending: Discipline order, then Sheet #" style="padding:3px 8px">↓</button>
+        <span style="width:1px;height:18px;background:var(--border);margin:0 2px"></span>
+        <button class="btn btn-sm" onclick="selectAllSheets()" title="Select all sheets">Select All</button>
+        <button class="btn btn-sm" onclick="selectNoneSheets()" title="Deselect all sheets">Select None</button>
+        <button class="btn btn-sm btn-danger" onclick="clearSelectedSheets()" ${selCount === 0 ? 'disabled style="opacity:0.4;cursor:not-allowed"' : ''} title="Remove selected sheets">Clear${selCount ? ' ('+selCount+')' : ''}</button>
+      </div>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
+        <th style="width:18%">Sheet #</th><th style="width:30%">Sheet Name</th>
+        <th style="width:24%">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span>Discipline Sort Order</span>
+            <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ Auto Assign</button>
+          </div>
+        </th>
+        <th style="width:18%">Source File</th><th style="width:72px">Delete</th>
+      </tr></thead>
+      <tbody>
+        ${sheets.map(s => `
+          <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
+            <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
+            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
+            <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:5px">
+                <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
+                  <option value="">— unassigned —</option>
+                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`).join('')}
+                </select>
+                ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
+              </div>
+            </td>
+            <td style="color:var(--text3);font-size:11px;font-family:var(--mono)">${escHtml(s.fileName||'—')}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  _updateSortBtnState('sheet-sort', S._sheetSortDir);
+}
+
+function setSheetSortDir(dir) {
+  S._sheetSortDir = dir;
+  renderFileList();
+}
+
+function toggleSheetSel(id, checked) {
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) S._selectedSheets.add(id);
+  else S._selectedSheets.delete(id);
+  renderFileList();
+}
+
+function toggleSelectAllSheets(checked) {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = S._selectedSheets || new Set();
+  if (checked) sheets.forEach(s => S._selectedSheets.add(s.id));
+  else S._selectedSheets.clear();
+  renderFileList();
+}
+
+function selectAllSheets() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  S._selectedSheets = new Set(sheets.map(s => s.id));
+  renderFileList();
+}
+
+function selectNoneSheets() {
+  S._selectedSheets = new Set();
+  renderFileList();
+}
+
+function clearSelectedSheets() {
+  const sel = S._selectedSheets;
+  if (!sel || sel.size === 0) return;
+  const count = sel.size;
+  showModal(
+    'Remove Selected Sheets',
+    `Remove ${count} selected sheet${count !== 1 ? 's' : ''} from the index? This cannot be undone.`,
+    [
+      {label:`Remove ${count} sheet${count !== 1 ? 's' : ''}`, primary:true, action:()=>{
+        S.project.sheets = S.project.sheets.filter(s => !sel.has(s.id));
+        S._selectedSheets = new Set();
+        renderFileList();
+        markDirty('upload');
+        closeModal();
+      }},
+      {label:'Cancel', action:closeModal}
+    ]
+  );
+}
+
+function updateSheet(id, field, val) {
+  const s = S.project.sheets.find(x => x.id === id);
+  if (s) {
+    s[field] = val;
+    // If user manually changes discipline, clear the auto-assign indicator
+    if (field === 'discipline') s._autoDisc = false;
+    markDirty('upload');
+  }
+}
+
+function deleteSheet(id) {
+  showModal('Remove Sheet', 'Remove this sheet from the index?', [
+    {label:'Remove', primary:true, action:()=>{ S.project.sheets = S.project.sheets.filter(s => s.id !== id); renderFileList(); markDirty('upload'); closeModal(); }},
+    {label:'Cancel', action:closeModal}
+  ]);
+}
+
+function saveUpload(silent) {
+  saveDB(); S.dirty['upload'] = false;
+  unlockUpTo('status');
+  if (!silent) setAlert('upload-alert', 'Sheets saved.', 'success');
+  return true;
+}
+
+// ================================================================
+// STATUS / PREVIEW / EXPORT — LEVEL 6
 // ================================================================
 function renderStatusDefs() {
   const el = document.getElementById('status-defs');
@@ -1470,7 +1967,7 @@ function renderSchedule() {
   const rows = [...sheetMap.values()];
 
   if (!rows.length) {
-    container.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px">No sheets have been added yet.</div>';
+    container.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-size:13px">No sheets uploaded yet. Go to Upload to add drawing sheets.</div>';
     _updateSchedBulkBar(0, rows.length);
     return;
   }
@@ -1478,8 +1975,12 @@ function renderSchedule() {
   // Prune stale selections
   S._schedSel = new Set([...S._schedSel].filter(num => sheetMap.has(num)));
 
-  // ── Package columns follow Level 4 Packages order (left → right) ──
-  const sortedPkgs = S.project.packages;
+  // ── Sort packages by due date ascending (closest left → furthest right) ──
+  const sortedPkgs = [...S.project.packages].sort((a, b) => {
+    const da = a.due ? new Date(a.due).getTime() : Infinity;
+    const db = b.due ? new Date(b.due).getTime() : Infinity;
+    return da - db;
+  });
 
   // ── Column sizing ─────────────────────────────────────────────────
   // Sheet# = 10%, Sheet Name = 20%, each pkg = equal share of remaining space (1fr)
@@ -1670,20 +2171,33 @@ function clearSchedSel() {
   renderSchedule();
 }
 
-// Kept for any legacy call paths (no longer exposed in UI)
+// Level 6: kept for any legacy call paths (no longer exposed in UI)
 function addManualSheet() {
   const pkgId = S.project.packages[0]?.id || null;
   S.project.sheets.push({id:uid(), packageId:pkgId, sheetNum:'00-0', sheetName:'New Sheet Name', discipline:'', statusId:1, fileName:'manual'});
   renderSchedule(); markDirty('status');
 }
 
+// Level 5: manual add from the Upload view
+function addManualSheetUpload() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  if (!pkgId) { setAlert('upload-alert', 'Please select a package first in the Packages step.', 'danger'); return; }
+  S.project.sheets.push({id:uid(), packageId:pkgId, sheetNum:'00-0', sheetName:'New Sheet Name', discipline:'', statusId:1, fileName:'manual'});
+  markDirty('upload');
+  renderFileList();
+  setAlert('upload-alert', 'Sheet added. Edit the sheet number and name in the table below.', 'info');
+}
+
 // ── EXPORTS ──────────────────────────────────────────────────
 // Builds the schedule as a typed row list — blank spacer, discipline header,
 // sheet, subtotal, grand total — mirroring renderSchedule() exactly, so that
-// XLSX/CSV/Print all reproduce the same structure shown in the Level 5 preview.
+// XLSX/CSV/Print all reproduce the same structure shown in the Level 6 preview.
 function getScheduleRows() {
-  // Package columns follow Level 4 Packages order (left → right)
-  const sortedPkgs = S.project.packages;
+  const sortedPkgs = [...S.project.packages].sort((a, b) => {
+    const da = a.due ? new Date(a.due).getTime() : Infinity;
+    const db = b.due ? new Date(b.due).getTime() : Infinity;
+    return da - db;
+  });
   const pkgCols = sortedPkgs.map(p => ({ id: p.id, label: `${p.name}${p.due ? ' (' + p.due + ')' : ''}` }));
 
   const discOrder = {};
@@ -1760,8 +2274,12 @@ function getScheduleRows() {
 }
 
 function getScheduleData() {
-  // Package columns follow Level 4 Packages order — matches the Level 5 preview
-  const packages = S.project.packages;
+  // Sort packages by due date ascending — matches visual column order in Level 6
+  const packages = [...S.project.packages].sort((a, b) => {
+    const da = a.due ? new Date(a.due).getTime() : Infinity;
+    const db = b.due ? new Date(b.due).getTime() : Infinity;
+    return da - db;
+  });
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
@@ -1961,7 +2479,9 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
   4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
-  5. Review / Export — sort schedule by discipline, assign statuses, export to:
+  5. Upload — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
+              manually correct any fields in the inline table
+  6. Review / Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
 
   REVIT EXPORT
@@ -1971,6 +2491,8 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
   NOTES
   - Project number uniqueness is enforced per browser localStorage scope
+  - PDF extraction uses regex pattern matching on title block text;
+    results may require manual correction for non-standard title blocks
   - All navigation changes on dirty (unsaved) steps trigger a save/discard modal
   - Country codes follow ISO 3166-1 alpha-2 (XX = unknown/other)
 */
