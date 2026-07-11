@@ -802,6 +802,10 @@ const DEFAULT_PACKAGES = [
   {id:uid(),pCode:'P1 Code',name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
   {id:uid(),pCode:'P2 Code',name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
   {id:uid(),pCode:'P3 Code',name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
+  {id:uid(),pCode:'P4 Code',name:'Addendum-2 Package',abbr:'AD2',due:'2028-03-01',sheets:[]},
+  {id:uid(),pCode:'P5 Code',name:'Addendum-3 Package',abbr:'AD3',due:'2028-06-01',sheets:[]},
+  {id:uid(),pCode:'P6 Code',name:'Bulletin-1 Package',abbr:'BL1',due:'2028-09-01',sheets:[]},
+  {id:uid(),pCode:'P7 Code',name:'Bulletin-2 Package',abbr:'BL2',due:'2028-12-01',sheets:[]},
 ];
 
 const DEFAULT_STATUSES = [
@@ -810,13 +814,13 @@ const DEFAULT_STATUSES = [
   {id:2,name:'Issued for Construction = 2',symbol:'2'},
   {id:3,name:'To Be Decided 1 = 3',symbol:'3'},
   {id:4,name:'To Be Decided 2 = 4',symbol:'4'},
-  {id:5,name:'Removed = ✕',symbol:'✕'},
+  {id:5,name:'To Be Decided 3 = 5',symbol:'5'},
 ];
 
 // Fallback symbols used when a project's saved statuses predate the `symbol`
 // field (so legacy data still renders correctly). Any custom status without
 // an explicit symbol falls back to showing its numeric id.
-const FALLBACK_STATUS_SYMBOLS = {1:'1',2:'2',3:'3',4:'4',5:'✕',6:'0'};
+const FALLBACK_STATUS_SYMBOLS = {1:'1',2:'2',3:'3',4:'4',5:'5',6:'0'};
 
 function statusSymbolFor(statusId) {
   if (statusId == null || statusId === '') return '';
@@ -2401,7 +2405,7 @@ function getScheduleData() {
       'Project Number':    S.project.num,
       'Project Name':      S.project.name,
     };
-    // One column per package — status symbol only (○ ● □ ■ ✕), blank if sheet not in package
+    // One column per package — status definition number only (0–5 by default), blank if sheet not in package
     packages.forEach(p => {
       const s        = pkgMap[p.id];
       const statusId = s ? (s.statusId || 1) : null;
@@ -2412,17 +2416,70 @@ function getScheduleData() {
   });
 }
 
+// XLSX export uses a flat "sheet parameter" layout (one row per unique sheet
+// number, no header/subtotal rows) so the file drops cleanly into Revit or
+// other BIM data tools. Column order is fixed by spec:
+//   Discipline Name | Discipline Sort Order | Sheet Number | Sheet Name |
+//   one column per Level 4 package, headed by its P Code (P0 Code … P7 Code
+//   on a default project). Package cells carry the status definition number.
+// Print/PDF intentionally keeps the grouped getScheduleRows() layout.
 function exportXLSX() {
-  const { pkgCols, rows } = getScheduleRows();
-  const up = v => String(v ?? '').toUpperCase();
-  const header = ['SHEET NUMBER', 'SHEET NAME', ...pkgCols.map(p => up(p.label))];
-  const aoa = [header];
-  rows.forEach(r => {
-    if (r.type === 'blank')            aoa.push([]);
-    else if (r.type === 'discipline')  aoa.push([up(r.label)]);
-    else if (r.type === 'sheet')       aoa.push([up(r.sheetNum), up(r.sheetName), ...r.statusValues]);
-    else /* subtotal | grandtotal */   aoa.push([up(r.label), '', ...r.counts]);
+  const packages = S.project.packages;
+  const discOrder = {}, discName = {};
+  S.project.disciplines.forEach(d => {
+    discOrder[d.prefix] = parseInt(d.order) || 999;
+    discName[d.prefix]  = d.name;
   });
+
+  // Deduplicate to one row per sheet number — same rules as renderSchedule:
+  // latest package's Sheet Name wins for duplicates.
+  const pkgIdx = {};
+  packages.forEach((p, i) => { pkgIdx[p.id] = i; });
+  const sheetMap = new Map();
+  [...S.project.sheets]
+    .sort((a, b) => {
+      const da = discOrder[a.discipline] || 9999;
+      const db = discOrder[b.discipline] || 9999;
+      if (da !== db) return da - db;
+      return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
+    })
+    .forEach(s => {
+      const idx = pkgIdx[s.packageId] ?? -1;
+      if (!sheetMap.has(s.sheetNum)) {
+        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {}, _nameIdx: idx });
+      } else {
+        const row = sheetMap.get(s.sheetNum);
+        if (idx >= row._nameIdx) { row.sheetName = s.sheetName; row._nameIdx = idx; }
+      }
+      sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
+    });
+
+  const header = [
+    'Discipline Name',
+    'Discipline Sort Order',
+    'Sheet Number',
+    'Sheet Name',
+    ...packages.map(p => p.pCode || '')
+  ];
+  const aoa = [header];
+
+  [...sheetMap.values()].forEach(row => {
+    const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
+    const pkgVals = packages.map(p => {
+      const sheetId = row.pkgMap[p.id];
+      if (!sheetId) return '';
+      const sh = S.project.sheets.find(s => s.id === sheetId);
+      return sh ? statusSymbolFor(sh.statusId) : '';
+    });
+    aoa.push([
+      disc ? disc.name : (row.discipline || ''),
+      disc ? disc.order : '',
+      row.sheetNum,
+      row.sheetName,
+      ...pkgVals
+    ]);
+  });
+
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
@@ -2570,11 +2627,15 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   1. Login  — create an account or use demo credentials
   2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
-  4. Packages — set up submission packages (SD, DD, CD, etc.) with due dates
+  4. Packages — 8 default packages (P0 Code … P7 Code) with due dates; P Codes, names, and dates are all editable
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               review sheets per package via tabs; manually correct any fields in the inline table
   6. Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
+              XLSX is a flat parameter table: Discipline Name, Discipline Sort
+              Order, Sheet Number, Sheet Name, then one column per package
+              headed by its P Code (P0 Code … P7 Code). Print/PDF keeps the
+              grouped subtotal layout.
 
   REVIT EXPORT
   The tab-delimited export produces: Sheet Number, Sheet Name, Discipline Name,
