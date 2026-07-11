@@ -304,7 +304,7 @@ select.form-input{cursor:pointer}
   border:1px solid var(--border);padding:12px 14px;
   display:flex;align-items:center;gap:12px;margin-bottom:8px;
 }
-.pkg-inputs{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pkg-inputs{flex:1;display:grid;grid-template-columns:minmax(110px,0.55fr) 1.25fr 1fr;gap:10px}
 
 /* Sheet schedule preview */
 .schedule-header{
@@ -798,10 +798,10 @@ const DEFAULT_DISCIPLINES = [
 ];
 
 const DEFAULT_PACKAGES = [
-  {id:uid(),name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
-  {id:uid(),name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
-  {id:uid(),name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
-  {id:uid(),name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
+  {id:uid(),pCode:'P0 Code',name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
+  {id:uid(),pCode:'P1 Code',name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
+  {id:uid(),pCode:'P2 Code',name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
+  {id:uid(),pCode:'P3 Code',name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
 ];
 
 const DEFAULT_STATUSES = [
@@ -1420,13 +1420,53 @@ function saveDisciplines(silent) {
 // ================================================================
 // PACKAGES — LEVEL 4
 // ================================================================
+// Sequential default P Codes: "P0 Code", "P1 Code", "P2 Code", ...
+// Scans existing packages for the P<number> Code pattern and returns the
+// next index after the highest one found. Falls back to the package count
+// when no pattern matches (e.g. all codes were manually edited), so new
+// rows always get a fresh, in-sequence default.
+function nextPCode() {
+  const pkgs = S.project?.packages || [];
+  let max = -1;
+  for (const p of pkgs) {
+    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  const n = max >= 0 ? max + 1 : pkgs.length;
+  return `P${n} Code`;
+}
+
+// Backward compatibility: projects saved before the P Code column existed
+// have packages without a pCode. Assign sequential defaults in array order.
+function ensurePkgCodes() {
+  if (!S.project) return;
+  let max = -1;
+  S.project.packages.forEach(p => {
+    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  let changed = false, next = max + 1;
+  S.project.packages.forEach(p => {
+    if (p.pCode === undefined || p.pCode === null || p.pCode === '') {
+      p.pCode = `P${next++} Code`;
+      changed = true;
+    }
+  });
+  if (changed) saveDB();
+}
+
 function renderPackages() {
   if (!S.project) return;
+  ensurePkgCodes();
   const el = document.getElementById('pkg-list');
   el.innerHTML = S.project.packages.map((pkg, i) => `
     <div class="pkg-row" id="pkg-${pkg.id}">
       <div style="color:var(--text3);font-size:13px;min-width:20px;text-align:center">${i+1}</div>
       <div class="pkg-inputs">
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">P Code</div>
+          <input class="form-input mono" style="height:32px;font-size:13px" value="${escHtml(pkg.pCode || '')}" oninput="updatePkg('${pkg.id}','pCode',this.value)"/>
+        </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Package Name</div>
           <input class="form-input" style="height:32px;font-size:13px" value="${escHtml(pkg.name)}" oninput="updatePkg('${pkg.id}','name',this.value)"/>
@@ -1461,14 +1501,14 @@ function movePkg(id, dir) {
 }
 
 function addPackage() {
-  S.project.packages.push({id:uid(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
+  S.project.packages.push({id:uid(), pCode:nextPCode(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
   renderPackages(); markDirty('packages');
 }
 
 function insertPkgAfter(id) {
   const arr = S.project.packages;
   const i = arr.findIndex(x => x.id === id);
-  arr.splice(i+1, 0, {id:uid(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
+  arr.splice(i+1, 0, {id:uid(), pCode:nextPCode(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
   renderPackages(); markDirty('packages');
 }
 
