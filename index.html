@@ -2419,9 +2419,13 @@ function getScheduleData() {
 // XLSX export uses a flat "sheet parameter" layout (one row per unique sheet
 // number, no header/subtotal rows) so the file drops cleanly into Revit or
 // other BIM data tools. Column order is fixed by spec:
-//   Discipline Name | Discipline Sort Order | Sheet Number | Sheet Name |
-//   one column per Level 4 package, headed by its P Code (P0 Code … P7 Code
-//   on a default project). Package cells carry the status definition number.
+//   A Sheet Issue Date (Level 4 due date of the latest package containing the
+//     sheet — "latest package wins", matching the dedup convention)
+//   B Sheet Category   (Level 3 Discipline Name)
+//   C Discipline Name  (Level 3 Discipline Name)
+//   D Discipline Sort Order | E Sheet Number | F Sheet Name |
+//   G… one column per Level 4 package, headed by its P Code (P0 Code … P7 Code
+//   on a default project → columns G–N). Package cells carry the status number.
 // Print/PDF intentionally keeps the grouped getScheduleRows() layout.
 function exportXLSX() {
   const packages = S.project.packages;
@@ -2455,6 +2459,8 @@ function exportXLSX() {
     });
 
   const header = [
+    'Sheet Issue Date',
+    'Sheet Category',
     'Discipline Name',
     'Discipline Sort Order',
     'Sheet Number',
@@ -2471,8 +2477,15 @@ function exportXLSX() {
       const sh = S.project.sheets.find(s => s.id === sheetId);
       return sh ? statusSymbolFor(sh.statusId) : '';
     });
+    // Sheet Issue Date = due date of the latest Level 4 package containing
+    // this sheet (highest array index), mirroring the "latest package wins" rule.
+    let issueDate = '';
+    packages.forEach(p => { if (row.pkgMap[p.id]) issueDate = p.due || ''; });
+    const discNameVal = disc ? disc.name : (row.discipline || '');
     aoa.push([
-      disc ? disc.name : (row.discipline || ''),
+      issueDate,
+      discNameVal,          // Sheet Category — per spec, sourced from Discipline Name
+      discNameVal,
       disc ? disc.order : '',
       row.sheetNum,
       row.sheetName,
