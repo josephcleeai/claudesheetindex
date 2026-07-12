@@ -6,8 +6,7 @@
 <title>SheetIndex — Construction Document Manager</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
-<!-- xlsx-js-style = SheetJS CE 0.18.5 + cell style (alignment) support; drop-in API-compatible replacement for the stock xlsx build -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -2420,23 +2419,14 @@ function getScheduleData() {
 // XLSX export uses a flat "sheet parameter" layout (one row per unique sheet
 // number, no header/subtotal rows) so the file drops cleanly into Revit or
 // other BIM data tools. Column order is fixed by spec:
-//   A Sheet Issue Date   (Level 4 due date of the latest package containing the
+//   A Sheet Issue Date (Level 4 due date of the latest package containing the
 //     sheet — "latest package wins", matching the dedup convention)
-//   B Sheet Category     (Level 3 Discipline Name)
-//   C Working or Printed (constant default "Printed")
-//   D Package            (constant default "TBD")
-//   E Sheet Number | F Sheet Name |
-//   G… one column per Level 4 package, headed by its P Code. The header is
-//     padded with sequential P Codes to a minimum of 9 package columns so the
-//     default 8-package project still exports P0 Code … P8 Code = columns G–O
-//     (padded columns carry blank cells). Package cells carry the status
-//     definition number as a true integer when the symbol is numeric.
-// Formatting: every cell is centered horizontally + middle-aligned vertically,
-// except Sheet Name (col F) data cells, which are left + middle. Requires the
-// xlsx-js-style build (stock SheetJS CE ignores the cell `s` style property).
+//   B Sheet Category   (Level 3 Discipline Name)
+//   C Discipline Name  (Level 3 Discipline Name)
+//   D Discipline Sort Order | E Sheet Number | F Sheet Name |
+//   G… one column per Level 4 package, headed by its P Code (P0 Code … P7 Code
+//   on a default project → columns G–N). Package cells carry the status number.
 // Print/PDF intentionally keeps the grouped getScheduleRows() layout.
-const XLSX_MIN_PKG_COLS = 9; // guarantees P0–P8 (G–O) even on default projects
-
 function exportXLSX() {
   const packages = S.project.packages;
   const discOrder = {}, discName = {};
@@ -2468,35 +2458,16 @@ function exportXLSX() {
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
     });
 
-  // P-code header cells: real packages first, then sequential pad codes
-  // (continuing from the highest existing P index) up to XLSX_MIN_PKG_COLS.
-  const pkgHeaders = packages.map(p => p.pCode || '');
-  let maxP = packages.length - 1;
-  packages.forEach(p => {
-    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
-    if (m) maxP = Math.max(maxP, parseInt(m[1], 10));
-  });
-  const padCount = Math.max(0, XLSX_MIN_PKG_COLS - packages.length);
-  for (let i = 1; i <= padCount; i++) pkgHeaders.push(`P${maxP + i} Code`);
-
   const header = [
     'Sheet Issue Date',
     'Sheet Category',
-    'Working or Printed',
-    'Package',
+    'Discipline Name',
+    'Discipline Sort Order',
     'Sheet Number',
     'Sheet Name',
-    ...pkgHeaders
+    ...packages.map(p => p.pCode || '')
   ];
   const aoa = [header];
-
-  // Status cells export as true integers when the symbol is numeric
-  // (default symbols 0–5); non-numeric custom symbols stay as text.
-  const statusCell = (sym) => {
-    if (sym === '' || sym == null) return '';
-    const n = Number(sym);
-    return Number.isFinite(n) ? n : sym;
-  };
 
   [...sheetMap.values()].forEach(row => {
     const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
@@ -2504,18 +2475,18 @@ function exportXLSX() {
       const sheetId = row.pkgMap[p.id];
       if (!sheetId) return '';
       const sh = S.project.sheets.find(s => s.id === sheetId);
-      return sh ? statusCell(statusSymbolFor(sh.statusId)) : '';
+      return sh ? statusSymbolFor(sh.statusId) : '';
     });
-    for (let i = 0; i < padCount; i++) pkgVals.push('');
     // Sheet Issue Date = due date of the latest Level 4 package containing
     // this sheet (highest array index), mirroring the "latest package wins" rule.
     let issueDate = '';
     packages.forEach(p => { if (row.pkgMap[p.id]) issueDate = p.due || ''; });
+    const discNameVal = disc ? disc.name : (row.discipline || '');
     aoa.push([
       issueDate,
-      disc ? disc.name : (row.discipline || ''),   // Sheet Category
-      'Printed',                                    // Working or Printed — default
-      'TBD',                                        // Package — default
+      discNameVal,          // Sheet Category — per spec, sourced from Discipline Name
+      discNameVal,
+      disc ? disc.order : '',
       row.sheetNum,
       row.sheetName,
       ...pkgVals
@@ -2523,25 +2494,6 @@ function exportXLSX() {
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Alignment: all cells center + middle; Sheet Name (col F, index 5) data
-  // cells left + middle. Header row stays fully centered.
-  const SHEET_NAME_COL = 5;
-  const range = XLSX.utils.decode_range(ws['!ref']);
-  for (let R = range.s.r; R <= range.e.r; R++) {
-    for (let C = range.s.c; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!ws[addr]) continue;
-      const horizontal = (C === SHEET_NAME_COL && R > 0) ? 'left' : 'center';
-      ws[addr].s = { alignment: { vertical: 'center', horizontal } };
-    }
-  }
-  // Readable default column widths: dates/labels sized to content, Sheet Name wide
-  ws['!cols'] = [
-    { wch: 16 }, { wch: 26 }, { wch: 18 }, { wch: 10 }, { wch: 14 }, { wch: 42 },
-    ...pkgHeaders.map(() => ({ wch: 10 }))
-  ];
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
   XLSX.writeFile(wb, `${S.project.num}_SheetIndex.xlsx`);
