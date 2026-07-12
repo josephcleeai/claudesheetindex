@@ -6,7 +6,8 @@
 <title>SheetIndex — Construction Document Manager</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- xlsx-js-style = SheetJS CE 0.18.5 + cell style (alignment/number format) support; drop-in API-compatible replacement for the stock xlsx build -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -2419,14 +2420,28 @@ function getScheduleData() {
 // XLSX export uses a flat "sheet parameter" layout (one row per unique sheet
 // number, no header/subtotal rows) so the file drops cleanly into Revit or
 // other BIM data tools. Column order is fixed by spec:
-//   A Sheet Issue Date (Level 4 due date of the latest package containing the
+//   A Sheet Number | B Sheet Name |
+//   C Working or Printed (constant default "Printed")
+//   D Package            (constant default "TBD")
+//   E Sheet Issue Date   (Level 4 due date of the latest package containing the
 //     sheet — "latest package wins", matching the dedup convention)
-//   B Sheet Category   (Level 3 Discipline Name)
-//   C Discipline Name  (Level 3 Discipline Name)
-//   D Discipline Sort Order | E Sheet Number | F Sheet Name |
-//   G… one column per Level 4 package, headed by its P Code (P0 Code … P7 Code
-//   on a default project → columns G–N). Package cells carry the status number.
+//   F Sheet Category     (Level 3 Discipline Name)
+//   G Discipline Name    (Level 3 Discipline Name)
+//   H Discipline Sort Order — composite `Order-Discipline Name` (e.g.
+//     "621-Electrical"), same convention as the Level 3 sort key
+//   I… one column per Level 4 package, headed by its P Code. The header is
+//     padded with sequential P Codes to a minimum of 9 package columns so the
+//     default 8-package project still exports P0 Code … P8 Code = columns I–Q
+//     (padded columns carry blank cells).
+// Cell formats: A–H are Text (numFmt '@'); package status cells are Integer
+// (numFmt '0', true numbers when the status symbol is numeric — default 0–5).
+// Alignment: every cell is centered horizontally + middle-aligned vertically,
+// except Sheet Name (col B) data cells, which are left + middle. Requires the
+// xlsx-js-style build (stock SheetJS CE ignores the cell `s` style property).
 // Print/PDF intentionally keeps the grouped getScheduleRows() layout.
+const XLSX_MIN_PKG_COLS = 9;   // guarantees P0–P8 (I–Q) even on default projects
+const XLSX_TEXT_COLS    = 8;   // columns A–H carry Text format
+
 function exportXLSX() {
   const packages = S.project.packages;
   const discOrder = {}, discName = {};
@@ -2458,16 +2473,37 @@ function exportXLSX() {
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
     });
 
+  // P-code header cells: real packages first, then sequential pad codes
+  // (continuing from the highest existing P index) up to XLSX_MIN_PKG_COLS.
+  const pkgHeaders = packages.map(p => p.pCode || '');
+  let maxP = packages.length - 1;
+  packages.forEach(p => {
+    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
+    if (m) maxP = Math.max(maxP, parseInt(m[1], 10));
+  });
+  const padCount = Math.max(0, XLSX_MIN_PKG_COLS - packages.length);
+  for (let i = 1; i <= padCount; i++) pkgHeaders.push(`P${maxP + i} Code`);
+
   const header = [
+    'Sheet Number',
+    'Sheet Name',
+    'Working or Printed',
+    'Package',
     'Sheet Issue Date',
     'Sheet Category',
     'Discipline Name',
     'Discipline Sort Order',
-    'Sheet Number',
-    'Sheet Name',
-    ...packages.map(p => p.pCode || '')
+    ...pkgHeaders
   ];
   const aoa = [header];
+
+  // Status cells export as true integers when the symbol is numeric
+  // (default symbols 0–5); non-numeric custom symbols stay as text.
+  const statusCell = (sym) => {
+    if (sym === '' || sym == null) return '';
+    const n = Number(sym);
+    return Number.isFinite(n) ? n : sym;
+  };
 
   [...sheetMap.values()].forEach(row => {
     const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
@@ -2475,25 +2511,57 @@ function exportXLSX() {
       const sheetId = row.pkgMap[p.id];
       if (!sheetId) return '';
       const sh = S.project.sheets.find(s => s.id === sheetId);
-      return sh ? statusSymbolFor(sh.statusId) : '';
+      return sh ? statusCell(statusSymbolFor(sh.statusId)) : '';
     });
+    for (let i = 0; i < padCount; i++) pkgVals.push('');
     // Sheet Issue Date = due date of the latest Level 4 package containing
     // this sheet (highest array index), mirroring the "latest package wins" rule.
     let issueDate = '';
     packages.forEach(p => { if (row.pkgMap[p.id]) issueDate = p.due || ''; });
     const discNameVal = disc ? disc.name : (row.discipline || '');
+    // H: composite sort key `Order-Discipline Name`, e.g. "621-Electrical"
+    const discSortVal = disc ? `${disc.order}-${disc.name}` : '';
     aoa.push([
-      issueDate,
-      discNameVal,          // Sheet Category — per spec, sourced from Discipline Name
-      discNameVal,
-      disc ? disc.order : '',
       row.sheetNum,
       row.sheetName,
+      'Printed',        // Working or Printed — default
+      'TBD',            // Package — default
+      issueDate,
+      discNameVal,      // Sheet Category
+      discNameVal,      // Discipline Name
+      discSortVal,
       ...pkgVals
     ]);
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Formats + alignment. All cells center + middle; Sheet Name (col B,
+  // index 1) data cells left + middle. Header row stays fully centered.
+  // Columns A–H are Text ('@'); package columns are Integer ('0') on
+  // numeric cells only, so blanks/custom text symbols stay untyped.
+  const SHEET_NAME_COL = 1;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) continue;
+      const horizontal = (C === SHEET_NAME_COL && R > 0) ? 'left' : 'center';
+      const s = { alignment: { vertical: 'center', horizontal } };
+      if (R > 0) {
+        if (C < XLSX_TEXT_COLS) s.numFmt = '@';        // Text
+        else if (cell.t === 'n') s.numFmt = '0';       // Integer
+      }
+      cell.s = s;
+    }
+  }
+  // Readable default column widths: Sheet Name wide, statuses narrow
+  ws['!cols'] = [
+    { wch: 14 }, { wch: 42 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 26 }, { wch: 26 }, { wch: 28 },
+    ...pkgHeaders.map(() => ({ wch: 10 }))
+  ];
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
   XLSX.writeFile(wb, `${S.project.num}_SheetIndex.xlsx`);
