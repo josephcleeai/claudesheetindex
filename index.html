@@ -344,6 +344,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .schedule-row.sched-selected:hover{background:#dbeaf8!important}
 /* Package column header controls */
 .pkg-col-hdr{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.pkg-col-hdr-code{font-size:10px;font-weight:500;color:var(--text3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;letter-spacing:0.2px;margin-bottom:1px}
 .pkg-col-hdr-name{font-size:11px;font-weight:600;letter-spacing:0.3px;white-space:normal;overflow-wrap:break-word;font-family:var(--display);text-transform:uppercase;color:var(--text2);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pkg-col-hdr-due{font-size:11px;font-weight:600;color:var(--text2);font-family:var(--display);white-space:nowrap;margin-top:1px}
 .pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:4px;flex-wrap:nowrap}
@@ -799,14 +800,14 @@ const DEFAULT_DISCIPLINES = [
 ];
 
 const DEFAULT_PACKAGES = [
-  {id:uid(),pCode:'P0 Code',name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
-  {id:uid(),pCode:'P1 Code',name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
-  {id:uid(),pCode:'P2 Code',name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
-  {id:uid(),pCode:'P3 Code',name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
-  {id:uid(),pCode:'P4 Code',name:'Addendum-2 Package',abbr:'AD2',due:'2028-03-01',sheets:[]},
-  {id:uid(),pCode:'P5 Code',name:'Addendum-3 Package',abbr:'AD3',due:'2028-06-01',sheets:[]},
-  {id:uid(),pCode:'P6 Code',name:'Bulletin-1 Package',abbr:'BL1',due:'2028-09-01',sheets:[]},
-  {id:uid(),pCode:'P7 Code',name:'Bulletin-2 Package',abbr:'BL2',due:'2028-12-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P0',name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P1',name:'Design Development Package',abbr:'DD',due:'2027-06-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P2',name:'Construction Document Package',abbr:'CD',due:'2027-09-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P3',name:'Addendum-1 Package',abbr:'AD1',due:'2027-12-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P4',name:'Addendum-2 Package',abbr:'AD2',due:'2028-03-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P5',name:'Addendum-3 Package',abbr:'AD3',due:'2028-06-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P6',name:'Bulletin-1 Package',abbr:'BL1',due:'2028-09-01',sheets:[]},
+  {id:uid(),pCode:'Sheet.Index.P7',name:'Bulletin-2 Package',abbr:'BL2',due:'2028-12-01',sheets:[]},
 ];
 
 const DEFAULT_STATUSES = [
@@ -1425,35 +1426,47 @@ function saveDisciplines(silent) {
 // ================================================================
 // PACKAGES — LEVEL 4
 // ================================================================
-// Sequential default P Codes: "P0 Code", "P1 Code", "P2 Code", ...
-// Scans existing packages for the P<number> Code pattern and returns the
-// next index after the highest one found. Falls back to the package count
-// when no pattern matches (e.g. all codes were manually edited), so new
-// rows always get a fresh, in-sequence default.
+// Sequential default Sheet Index Codes: "Sheet.Index.P0", "Sheet.Index.P1", ...
+// Scans existing packages for the Sheet.Index.P<number> pattern (legacy
+// "P<number> Code" values are also recognized) and returns the next index
+// after the highest one found. Falls back to the package count when no
+// pattern matches (e.g. all codes were manually edited), so new rows always
+// get a fresh, in-sequence default.
+const PKG_CODE_RE        = /^Sheet\.Index\.P(\d+)$/i;
+const PKG_CODE_LEGACY_RE = /^P(\d+)\s+Code$/i;
+function pkgCodeIndex(code) {
+  const s = String(code || '').trim();
+  const m = PKG_CODE_RE.exec(s) || PKG_CODE_LEGACY_RE.exec(s);
+  return m ? parseInt(m[1], 10) : -1;
+}
 function nextPCode() {
   const pkgs = S.project?.packages || [];
   let max = -1;
-  for (const p of pkgs) {
-    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
+  for (const p of pkgs) max = Math.max(max, pkgCodeIndex(p.pCode));
   const n = max >= 0 ? max + 1 : pkgs.length;
-  return `P${n} Code`;
+  return `Sheet.Index.P${n}`;
 }
 
-// Backward compatibility: projects saved before the P Code column existed
-// have packages without a pCode. Assign sequential defaults in array order.
+// Backward compatibility, two cases handled in one idempotent pass:
+//   1. Projects saved before the code column existed → packages without a
+//      pCode get sequential Sheet.Index.P<n> defaults in array order.
+//   2. Projects saved with the legacy "P<n> Code" format → migrated in place
+//      to "Sheet.Index.P<n>", preserving each package's original index.
+// Manually edited (non-pattern) codes are never touched.
 function ensurePkgCodes() {
   if (!S.project) return;
-  let max = -1;
+  let changed = false;
+  // Migrate legacy-format codes first, keeping their index
   S.project.packages.forEach(p => {
-    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
-    if (m) max = Math.max(max, parseInt(m[1], 10));
+    const m = PKG_CODE_LEGACY_RE.exec(String(p.pCode || '').trim());
+    if (m) { p.pCode = `Sheet.Index.P${parseInt(m[1], 10)}`; changed = true; }
   });
-  let changed = false, next = max + 1;
+  let max = -1;
+  S.project.packages.forEach(p => { max = Math.max(max, pkgCodeIndex(p.pCode)); });
+  let next = max + 1;
   S.project.packages.forEach(p => {
     if (p.pCode === undefined || p.pCode === null || p.pCode === '') {
-      p.pCode = `P${next++} Code`;
+      p.pCode = `Sheet.Index.P${next++}`;
       changed = true;
     }
   });
@@ -1469,7 +1482,7 @@ function renderPackages() {
       <div style="color:var(--text3);font-size:13px;min-width:20px;text-align:center">${i+1}</div>
       <div class="pkg-inputs">
         <div>
-          <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">P Code</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Sheet.Index.Code</div>
           <input class="form-input mono" style="height:32px;font-size:13px" value="${escHtml(pkg.pCode || '')}" oninput="updatePkg('${pkg.id}','pCode',this.value)"/>
         </div>
         <div>
@@ -2025,6 +2038,7 @@ function deleteStatus(id) {
 
 function renderSchedule() {
   if (!S.project) return;
+  ensurePkgCodes(); // migrate/backfill Sheet.Index codes before drawing headers
   const container = document.getElementById('schedule-container');
   const packages  = S.project.packages;
 
@@ -2087,6 +2101,7 @@ function renderSchedule() {
   // ── Header ───────────────────────────────────────────────────────
   const pkgHeaderCells = sortedPkgs.map(p => {
     return `<div class="pkg-col-hdr">
+      <div class="pkg-col-hdr-code" title="Sheet.Index.Code — editable in Level 4 Packages">${escHtml(p.pCode || '')}</div>
       <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
       <div class="pkg-col-hdr-controls">
@@ -2429,9 +2444,10 @@ function getScheduleData() {
 //   G Discipline Name    (Level 3 Discipline Name)
 //   H Discipline Sort Order — composite `Order-Discipline Name` (e.g.
 //     "621-Electrical"), same convention as the Level 3 sort key
-//   I… one column per Level 4 package, headed by its P Code. The header is
-//     padded with sequential P Codes to a minimum of 9 package columns so the
-//     default 8-package project still exports P0 Code … P8 Code = columns I–Q
+//   I… one column per Level 4 package, headed by its Sheet.Index.Code. The
+//     header is padded with sequential codes to a minimum of 9 package columns
+//     so the default 8-package project still exports Sheet.Index.P0 …
+//     Sheet.Index.P8 = columns I–Q
 //     (padded columns carry blank cells).
 // Cell formats: A–H are Text (numFmt '@'); package status cells are Integer
 // (numFmt '0', true numbers when the status symbol is numeric — default 0–5).
@@ -2439,10 +2455,11 @@ function getScheduleData() {
 // except Sheet Name (col B) data cells, which are left + middle. Requires the
 // xlsx-js-style build (stock SheetJS CE ignores the cell `s` style property).
 // Print/PDF intentionally keeps the grouped getScheduleRows() layout.
-const XLSX_MIN_PKG_COLS = 9;   // guarantees P0–P8 (I–Q) even on default projects
+const XLSX_MIN_PKG_COLS = 9;   // guarantees Sheet.Index.P0–P8 (I–Q) even on default projects
 const XLSX_TEXT_COLS    = 8;   // columns A–H carry Text format
 
 function exportXLSX() {
+  ensurePkgCodes(); // migrate/backfill Sheet.Index codes before building headers
   const packages = S.project.packages;
   const discOrder = {}, discName = {};
   S.project.disciplines.forEach(d => {
@@ -2473,16 +2490,13 @@ function exportXLSX() {
       sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
     });
 
-  // P-code header cells: real packages first, then sequential pad codes
-  // (continuing from the highest existing P index) up to XLSX_MIN_PKG_COLS.
+  // Sheet-Index-Code header cells: real packages first, then sequential pad
+  // codes (continuing from the highest existing index) up to XLSX_MIN_PKG_COLS.
   const pkgHeaders = packages.map(p => p.pCode || '');
   let maxP = packages.length - 1;
-  packages.forEach(p => {
-    const m = /^P(\d+)\s+Code$/i.exec(String(p.pCode || '').trim());
-    if (m) maxP = Math.max(maxP, parseInt(m[1], 10));
-  });
+  packages.forEach(p => { maxP = Math.max(maxP, pkgCodeIndex(p.pCode)); });
   const padCount = Math.max(0, XLSX_MIN_PKG_COLS - packages.length);
-  for (let i = 1; i <= padCount; i++) pkgHeaders.push(`P${maxP + i} Code`);
+  for (let i = 1; i <= padCount; i++) pkgHeaders.push(`Sheet.Index.P${maxP + i}`);
 
   const header = [
     'Sheet Number',
@@ -2708,14 +2722,14 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   1. Login  — create an account or use demo credentials
   2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
-  4. Packages — 8 default packages (P0 Code … P7 Code) with due dates; P Codes, names, and dates are all editable
+  4. Packages — 8 default packages (Sheet.Index.P0 … Sheet.Index.P7) with due dates; Sheet.Index.Codes, names, and dates are all editable
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               review sheets per package via tabs; manually correct any fields in the inline table
   6. Export — sort schedule by discipline, assign statuses, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
               XLSX is a flat parameter table: Discipline Name, Discipline Sort
               Order, Sheet Number, Sheet Name, then one column per package
-              headed by its P Code (P0 Code … P7 Code). Print/PDF keeps the
+              headed by its Sheet.Index.Code (Sheet.Index.P0 …). Print/PDF keeps the
               grouped subtotal layout.
 
   REVIT EXPORT
