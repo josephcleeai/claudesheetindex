@@ -418,7 +418,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input id="li-pass" class="form-input" type="password" placeholder="stadium1"/>
+        <input id="li-pass" class="form-input" type="password" placeholder="password"/>
       </div>
       <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doLogin()">Sign in</button>
       <div style="text-align:center;font-size:12px;color:var(--text3)">
@@ -2697,8 +2697,15 @@ function escHtmlRaw(str) {
 // DEMO SEED
 // ================================================================
 if (!DB.users.length) {
-  DB.users.push({id:'demo', name:'Demo Architect', email:'demo@firm.com', pass:'stadium1', created:Date.now()});
+  DB.users.push({id:'demo', name:'Demo Architect', email:'demo@firm.com', pass:'password', created:Date.now()});
   saveDB();
+}
+// Migration: demo accounts seeded before the default password rename still
+// carry the old value in localStorage — update in place (only if unchanged
+// by the user, i.e. still exactly the old default).
+{
+  const demo = DB.users.find(u => u.id === 'demo' && u.pass === 'stadium1');
+  if (demo) { demo.pass = 'password'; saveDB(); }
 }
 
 // Show the most recent update time (from this or a previous session) on load.
@@ -2716,7 +2723,7 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
   DEMO CREDENTIALS
   Email:    demo@firm.com
-  Password: stadium1
+  Password: password
 
   WORKFLOW
   1. Login  — create an account or use demo credentials
