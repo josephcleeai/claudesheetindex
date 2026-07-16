@@ -637,7 +637,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <polyline points="9 15 12 12 15 15"/>
       </svg>
       <div class="drop-title">Drop PDF files here</div>
-      <div class="drop-sub">Or click to browse · Up to 150 PDFs per batch · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
+      <div class="drop-sub">Or click to browse · Up to 500 PDFs per batch · Name files as <span style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:11px">A101__Floor Plan.pdf</span> to auto-assign disciplines</div>
     </div>
     <div id="extraction-progress" style="display:none;margin-top:12px">
       <div id="ext-label" style="font-size:12px;color:var(--text2);margin-bottom:6px">Extracting sheet data…</div>
@@ -718,9 +718,48 @@ let DB = {
 };
 
 function saveDB() {
-  localStorage.setItem('si_users', JSON.stringify(DB.users));
-  localStorage.setItem('si_projects', JSON.stringify(DB.projects));
-  touchLastUpdated();
+  try {
+    localStorage.setItem('si_users', JSON.stringify(DB.users));
+    localStorage.setItem('si_projects', JSON.stringify(DB.projects));
+    touchLastUpdated();
+    hideStorageWarning();
+    return true;
+  } catch (e) {
+    // localStorage quota (~5 MB/origin) exceeded — typically after tens of
+    // thousands of sheets. Surface a persistent warning instead of throwing,
+    // so a large upload batch degrades gracefully rather than dying midway.
+    const isQuota = e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22);
+    console.error('saveDB failed' + (isQuota ? ' (storage quota exceeded)' : ''), e);
+    showStorageWarning(isQuota
+      ? 'Browser storage is full — recent changes could not be saved. Export your data (Level 6), then delete old projects or sheets to free space.'
+      : 'Changes could not be saved to browser storage. Export your data (Level 6) to avoid losing work.');
+    return false;
+  }
+}
+
+// Persistent, dismissible warning banner for storage failures. Idempotent.
+function showStorageWarning(msg) {
+  let el = document.getElementById('storage-warning');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'storage-warning';
+    el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;max-width:560px;width:calc(100% - 32px);background:var(--surface1,#fff);color:var(--text1,#222);border:1px solid var(--danger,#c0392b);border-left:4px solid var(--danger,#c0392b);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.18);padding:12px 40px 12px 14px;font-size:13px;line-height:1.45';
+    const x = document.createElement('button');
+    x.textContent = '\u00d7';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.style.cssText = 'position:absolute;top:6px;right:8px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--text3,#888);line-height:1';
+    x.onclick = () => el.remove();
+    const span = document.createElement('span');
+    span.id = 'storage-warning-msg';
+    el.appendChild(span);
+    el.appendChild(x);
+    document.body.appendChild(el);
+  }
+  document.getElementById('storage-warning-msg').textContent = msg; // textContent — no HTML injection
+}
+function hideStorageWarning() {
+  const el = document.getElementById('storage-warning');
+  if (el) el.remove();
 }
 
 // ── Sidebar "last updated" timestamp ──────────────────────────────
@@ -1584,7 +1623,12 @@ dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.
 
 function triggerFileInput() { document.getElementById('file-input').click(); }
 
-const MAX_UPLOAD_BATCH = 150;
+// Per-batch guardrails. Files are processed sequentially and each PDF is
+// destroyed after parsing, so peak memory tracks the largest single file —
+// total batch SIZE predicts tab crashes far better than file count. Both
+// caps apply; whichever is hit first truncates the batch.
+const MAX_UPLOAD_BATCH = 500;                      // max files per batch
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;   // max total bytes per batch (2 GB)
 
 async function handleFiles(files) {
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
@@ -1603,13 +1647,28 @@ async function handleFiles(files) {
     return;
   }
 
-  // --- Requirement 1: cap each upload attempt at 150 files ---
+  // --- Cap each upload attempt: 500 files or 2 GB total, whichever first ---
   let cappedNote = '';
   let batch = pdfFiles;
-  if (pdfFiles.length > MAX_UPLOAD_BATCH) {
-    batch = pdfFiles.slice(0, MAX_UPLOAD_BATCH);
-    const over = pdfFiles.length - MAX_UPLOAD_BATCH;
-    cappedNote = ` ${over} file${over !== 1 ? 's were' : ' was'} not processed — upload up to ${MAX_UPLOAD_BATCH} at a time. You can add the rest in another batch.`;
+  {
+    const kept = [];
+    let bytes = 0, hitCount = false, hitSize = false;
+    for (const f of pdfFiles) {
+      if (kept.length >= MAX_UPLOAD_BATCH) { hitCount = true; break; }
+      // Always accept at least one file so a single oversized PDF still gets
+      // a parse attempt rather than silently producing an empty batch.
+      if (kept.length > 0 && bytes + (f.size || 0) > MAX_UPLOAD_BYTES) { hitSize = true; break; }
+      kept.push(f);
+      bytes += (f.size || 0);
+    }
+    if (kept.length < pdfFiles.length) {
+      batch = kept;
+      const over = pdfFiles.length - kept.length;
+      const reason = hitCount
+        ? `upload up to ${MAX_UPLOAD_BATCH} files at a time`
+        : `each batch is limited to ${(MAX_UPLOAD_BYTES / (1024*1024*1024)).toFixed(0)} GB of PDFs to keep the browser stable`;
+      cappedNote = ` ${over} file${over !== 1 ? 's were' : ' was'} not processed — ${reason}. You can add the rest in another batch.`;
+    }
   }
 
   S._uploadBusy = true;
