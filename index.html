@@ -1943,17 +1943,11 @@ function renderFileList() {
 
   // ── Body rows grouped by Discipline Sort Order ──
   // Sheets are already sorted discipline-first, so each discipline forms a
-  // contiguous run in either sort direction. After each run we append a
-  // subtotal row and a blank spacer row; a grand total row closes the table.
+  // contiguous run in either sort direction. Each run opens with a blank
+  // spacer row and closes with a numeric subtotal row (count only, no text
+  // label) followed by a blank spacer; a grand total row closes the table.
   // These rows are display-only — they carry no sheet ids, so selection,
   // delete, sorting, and export logic are unaffected.
-  const discByPrefix = {};
-  S.project.disciplines.forEach(d => { discByPrefix[d.prefix] = d; });
-  const discLabel = pfx => {
-    const d = discByPrefix[pfx];
-    if (d) return `${escHtml(d.order)}-${escHtml(d.name)}`;
-    return pfx ? escHtml(pfx) : 'Unassigned';
-  };
   const sheetRowHtml = s => `
           <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
             <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
@@ -1979,11 +1973,15 @@ function renderFileList() {
     let gj = gi;
     while (gj < sheets.length && (sheets[gj].discipline || '') === key) gj++;
     const group = sheets.slice(gi, gj);
+    // Blank spacer row at the TOP of each discipline section
+    bodyRows += `
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
     bodyRows += group.map(sheetRowHtml).join('');
+    // Subtotal row: numeric count only (no text label)
     bodyRows += `
           <tr class="rev-subtotal">
             <td></td>
-            <td colspan="3">${discLabel(key)} — Subtotal</td>
+            <td colspan="3"></td>
             <td class="rev-count">${group.length} sheet${group.length !== 1 ? 's' : ''}</td>
             <td></td>
           </tr>
