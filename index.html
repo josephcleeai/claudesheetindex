@@ -351,6 +351,23 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
+/* Level 5 Review: per-discipline subtotal, blank spacer, and grand total rows */
+.data-table tr.rev-subtotal td{
+  background:var(--surface2);padding:6px 12px;
+  font-size:11px;font-weight:600;letter-spacing:0.3px;
+  color:var(--text2);font-family:var(--display);text-transform:uppercase;
+}
+.data-table tr.rev-subtotal:hover td{background:var(--surface2)}
+.data-table tr.rev-subtotal td.rev-count{font-family:var(--mono);text-transform:none;letter-spacing:0}
+.data-table tr.rev-blank td{padding:0;height:12px;border-bottom:none;background:transparent}
+.data-table tr.rev-blank:hover td{background:transparent}
+.data-table tr.rev-grandtotal td{
+  background:var(--accent-light);border-top:2px solid var(--border2);border-bottom:none;
+  padding:10px 12px;font-size:12px;font-weight:700;letter-spacing:0.3px;
+  color:var(--text);font-family:var(--display);text-transform:uppercase;
+}
+.data-table tr.rev-grandtotal:hover td{background:var(--accent-light)}
+.data-table tr.rev-grandtotal td.rev-count{font-family:var(--mono);text-transform:none;letter-spacing:0}
 /* Sort direction toggle buttons (shared by Level 3 and Level 5) */
 .sort-btn-active{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
 </style>
@@ -1924,6 +1941,63 @@ function renderFileList() {
 
   const selCount = S._selectedSheets.size;
 
+  // ── Body rows grouped by Discipline Sort Order ──
+  // Sheets are already sorted discipline-first, so each discipline forms a
+  // contiguous run in either sort direction. After each run we append a
+  // subtotal row and a blank spacer row; a grand total row closes the table.
+  // These rows are display-only — they carry no sheet ids, so selection,
+  // delete, sorting, and export logic are unaffected.
+  const discByPrefix = {};
+  S.project.disciplines.forEach(d => { discByPrefix[d.prefix] = d; });
+  const discLabel = pfx => {
+    const d = discByPrefix[pfx];
+    if (d) return `${escHtml(d.order)}-${escHtml(d.name)}`;
+    return pfx ? escHtml(pfx) : 'Unassigned';
+  };
+  const sheetRowHtml = s => `
+          <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
+            <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
+            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
+            <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:5px">
+                <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
+                  <option value="">— unassigned —</option>
+                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`).join('')}
+                </select>
+                ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
+              </div>
+            </td>
+            <td style="color:var(--text3);font-size:11px;font-family:var(--mono);white-space:nowrap" title="${escHtml(s.fileName||'')}">${escHtml(s.fileName||'—')}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
+          </tr>`;
+
+  let bodyRows = '';
+  let gi = 0;
+  while (gi < sheets.length) {
+    const key = sheets[gi].discipline || '';
+    let gj = gi;
+    while (gj < sheets.length && (sheets[gj].discipline || '') === key) gj++;
+    const group = sheets.slice(gi, gj);
+    bodyRows += group.map(sheetRowHtml).join('');
+    bodyRows += `
+          <tr class="rev-subtotal">
+            <td></td>
+            <td colspan="3">${discLabel(key)} — Subtotal</td>
+            <td class="rev-count">${group.length} sheet${group.length !== 1 ? 's' : ''}</td>
+            <td></td>
+          </tr>
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
+    gi = gj;
+  }
+  bodyRows += `
+          <tr class="rev-grandtotal">
+            <td></td>
+            <td colspan="3">Grand Total</td>
+            <td class="rev-count">${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}</td>
+            <td></td>
+          </tr>`;
+
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">
@@ -1943,34 +2017,16 @@ function renderFileList() {
     <table class="data-table">
       <thead><tr>
         <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
-        <th style="width:18%">Sheet #</th><th style="width:30%">Sheet Name</th>
+        <th style="width:16%">Sheet #</th><th style="width:22%">Sheet Name</th>
         <th style="width:24%">
           <div style="display:flex;align-items:center;gap:7px">
             <span>Discipline Sort Order</span>
             <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ Auto Assign</button>
           </div>
         </th>
-        <th style="width:18%">Source File</th><th style="width:72px">Delete</th>
+        <th style="width:28%">Source File</th><th style="width:72px">Delete</th>
       </tr></thead>
-      <tbody>
-        ${sheets.map(s => `
-          <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
-            <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
-            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
-            <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
-            <td>
-              <div style="display:flex;align-items:center;gap:5px">
-                <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
-                  <option value="">— unassigned —</option>
-                  ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`).join('')}
-                </select>
-                ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
-              </div>
-            </td>
-            <td style="color:var(--text3);font-size:11px;font-family:var(--mono)">${escHtml(s.fileName||'—')}</td>
-            <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
-          </tr>
-        `).join('')}
+      <tbody>${bodyRows}
       </tbody>
     </table>
   `;
