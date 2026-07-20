@@ -352,18 +352,16 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
 /* Level 5 Review: sheet table column sizing.
-   Fixed table layout + nowrap headers keep Sheet #, Sheet Name, Discipline
-   Sort Order, and Source File on a single line. Long source filenames
-   truncate with an ellipsis (full name stays in the title tooltip). On
-   narrow viewports the table scrolls horizontally instead of wrapping.
+   Fixed table layout + nowrap headers keep Sheet #, Sheet Name, and
+   Discipline Sort Order on a single line. On narrow viewports the table
+   scrolls horizontally instead of wrapping.
    Columns (fixed px except Sheet Name, which takes the remainder):
    checkbox 40 · Sheet # 120 · Sheet Name auto · Discipline 320 ·
-   Source File 240 · Delete 64. The Discipline cell's <select> carries
-   min-width:0 inside its flex row so it can shrink instead of pushing
-   the green "auto" badge out of the column and under the Source File
-   text (that intrinsic-width overflow was the badge-overlap bug). */
+   Delete 64. The Discipline cell's <select> carries min-width:0 inside
+   its flex row so it can shrink instead of pushing the green "auto"
+   badge out of the column. */
 #file-list{overflow-x:auto}
-#file-list .data-table{table-layout:fixed;min-width:960px}
+#file-list .data-table{table-layout:fixed;min-width:760px}
 #file-list .data-table th{white-space:nowrap}
 #file-list .disc-cell{display:flex;align-items:center;gap:5px;min-width:0}
 #file-list .disc-cell select{flex:1 1 auto;min-width:0;width:100%;border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text)}
@@ -376,6 +374,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 }
 .data-table tr.rev-subtotal:hover td{background:var(--surface2)}
 .data-table tr.rev-subtotal td.rev-count{font-family:var(--mono);text-transform:none;letter-spacing:0}
+/* The count now sits in the Sheet Name column; indent it 7px extra so its
+   digits align with the text inside the Sheet Name inputs above it
+   (td 12px padding + 1px input border + 6px input padding = 19px). */
+.data-table tr.rev-subtotal td.rev-count,.data-table tr.rev-grandtotal td.rev-count{padding-left:19px}
 .data-table tr.rev-blank td{padding:0;height:12px;border-bottom:none;background:transparent}
 .data-table tr.rev-blank:hover td{background:transparent}
 .data-table tr.rev-grandtotal td{
@@ -1979,7 +1981,6 @@ function renderFileList() {
                 ${s._autoDisc && s.discipline ? `<span title="Auto-assigned from filename prefix" style="flex-shrink:0;font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 5px;white-space:nowrap">auto</span>` : ''}
               </div>
             </td>
-            <td style="color:var(--text3);font-size:11px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(s.fileName||'')}">${escHtml(s.fileName||'—')}</td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
           </tr>`;
 
@@ -1992,24 +1993,27 @@ function renderFileList() {
     const group = sheets.slice(gi, gj);
     // Blank spacer row at the TOP of each discipline section
     bodyRows += `
-          <tr class="rev-blank"><td colspan="6"></td></tr>`;
+          <tr class="rev-blank"><td colspan="5"></td></tr>`;
     bodyRows += group.map(sheetRowHtml).join('');
-    // Subtotal row: numeric count only (no text label)
+    // Subtotal row: numeric count only (no text label), shown in the
+    // Sheet Name column so it reads directly under the sheet names
     bodyRows += `
           <tr class="rev-subtotal">
             <td></td>
-            <td colspan="3"></td>
+            <td></td>
             <td class="rev-count">${group.length} sheet${group.length !== 1 ? 's' : ''}</td>
             <td></td>
+            <td></td>
           </tr>
-          <tr class="rev-blank"><td colspan="6"></td></tr>`;
+          <tr class="rev-blank"><td colspan="5"></td></tr>`;
     gi = gj;
   }
   bodyRows += `
           <tr class="rev-grandtotal">
             <td></td>
-            <td colspan="3">Grand Total</td>
+            <td>Grand Total</td>
             <td class="rev-count">${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}</td>
+            <td></td>
             <td></td>
           </tr>`;
 
@@ -2039,7 +2043,7 @@ function renderFileList() {
             <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ Auto Assign</button>
           </div>
         </th>
-        <th style="width:240px">Source File</th><th style="width:64px">Delete</th>
+        <th style="width:64px">Delete</th>
       </tr></thead>
       <tbody>${bodyRows}
       </tbody>
