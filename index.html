@@ -355,10 +355,18 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
    Fixed table layout + nowrap headers keep Sheet #, Sheet Name, Discipline
    Sort Order, and Source File on a single line. Long source filenames
    truncate with an ellipsis (full name stays in the title tooltip). On
-   narrow viewports the table scrolls horizontally instead of wrapping. */
+   narrow viewports the table scrolls horizontally instead of wrapping.
+   Columns (fixed px except Sheet Name, which takes the remainder):
+   checkbox 40 · Sheet # 120 · Sheet Name auto · Discipline 320 ·
+   Source File 240 · Delete 64. The Discipline cell's <select> carries
+   min-width:0 inside its flex row so it can shrink instead of pushing
+   the green "auto" badge out of the column and under the Source File
+   text (that intrinsic-width overflow was the badge-overlap bug). */
 #file-list{overflow-x:auto}
-#file-list .data-table{table-layout:fixed;min-width:920px}
+#file-list .data-table{table-layout:fixed;min-width:960px}
 #file-list .data-table th{white-space:nowrap}
+#file-list .disc-cell{display:flex;align-items:center;gap:5px;min-width:0}
+#file-list .disc-cell select{flex:1 1 auto;min-width:0;width:100%;border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text)}
 
 /* Level 5 Review: per-discipline subtotal, blank spacer, and grand total rows */
 .data-table tr.rev-subtotal td{
@@ -1960,11 +1968,11 @@ function renderFileList() {
   const sheetRowHtml = s => `
           <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
             <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
-            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)" style="width:90px"/></td>
+            <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
-              <div style="display:flex;align-items:center;gap:5px">
-                <select onchange="updateSheet('${s.id}','discipline',this.value)" style="border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-size:12px;flex:1">
+              <div class="disc-cell">
+                <select onchange="updateSheet('${s.id}','discipline',this.value)" title="Discipline Sort Order">
                   <option value="">— unassigned —</option>
                   ${S.project.disciplines.sort((a,b)=>a.order.localeCompare(b.order,'en',{numeric:true})).map(d=>`<option value="${d.prefix}" ${s.discipline===d.prefix?'selected':''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`).join('')}
                 </select>
@@ -2023,15 +2031,15 @@ function renderFileList() {
     </div>
     <table class="data-table">
       <thead><tr>
-        <th style="width:32px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
+        <th style="width:40px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
         <th style="width:120px">Sheet #</th><th>Sheet Name</th>
-        <th style="width:290px">
+        <th style="width:320px">
           <div style="display:flex;align-items:center;gap:7px">
             <span>Discipline Sort Order</span>
             <button class="btn btn-sm" onclick="autoAssignAllDisciplines()" title="Re-run prefix matching on all sheets in this package" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ Auto Assign</button>
           </div>
         </th>
-        <th style="width:25%">Source File</th><th style="width:64px">Delete</th>
+        <th style="width:240px">Source File</th><th style="width:64px">Delete</th>
       </tr></thead>
       <tbody>${bodyRows}
       </tbody>
