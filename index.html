@@ -610,6 +610,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
             <th style="width:360px;text-align:left">Discipline Name</th>
             <th style="width:200px;text-align:left">Disciplines Sort Order</th>
             <th style="width:120px;text-align:left">Prefix</th>
+            <th style="width:130px;text-align:left">Volume</th>
             <th style="width:90px;text-align:right">Delete</th>
           </tr>
         </thead>
@@ -1445,6 +1446,7 @@ function renderDisciplines() {
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
       <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
       <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
+      <td style="text-align:left"><input class="mono" type="text" value="${escHtml(d.volumeNum || 'Volume-1')}" onchange="updateDisc('${escHtml(d.prefix)}','volumeNum',this.value)" title="Default volume for sheets in this discipline (applied in Level 5 via ReMatch)" style="width:110px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `;
@@ -1501,7 +1503,7 @@ function updateDiscPrefix(oldPrefix, newPrefix) {
 }
 
 function addDiscipline() {
-  S.project.disciplines.push({order:'999', name:'New Discipline', prefix:'ND'+uid().slice(0,2).toUpperCase()});
+  S.project.disciplines.push({order:'999', name:'New Discipline', prefix:'ND'+uid().slice(0,2).toUpperCase(), volumeNum:'Volume-1'});
   renderDisciplines();
   markDirty('disciplines');
 }
@@ -1963,6 +1965,7 @@ function autoAssignAllDisciplines() {
 
 function renderFileList() {
   renderPkgTabs();
+  ensureSheetVolumes(); // backfill each sheet's volume from its Level 3 discipline default
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
   let sheets = S.project.sheets.filter(s => s.packageId === pkgId);
   const el = document.getElementById('file-list');
@@ -1994,11 +1997,23 @@ function renderFileList() {
   // label) followed by a blank spacer; a grand total row closes the table.
   // These rows are display-only — they carry no sheet ids, so selection,
   // delete, sorting, and export logic are unaffected.
+  // Volume dropdown options (union of all known volumes) — same list for every
+  // row; the selected value differs per sheet.
+  const volNames = allVolumeNames();
+
   const sheetRowHtml = s => `
           <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
             <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
             <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
+            <td>
+              <div class="disc-cell">
+                <select onchange="handleReviewSheetVolumeChange('${s.id}',this.value)" title="Volume — defaults from the Level 3 discipline; override here. ReMatch restores the default.">
+                  ${volNames.map(v => `<option value="${escHtml(v)}" ${sheetEffectiveVolume(s) === v ? 'selected' : ''}>${escHtml(v)}</option>`).join('')}
+                  <option value="__ADD__">+ Add New Volume</option>
+                </select>
+              </div>
+            </td>
             <td>
               <div class="disc-cell">
                 <select onchange="updateSheet('${s.id}','discipline',this.value)" title="Discipline Sort Order">
@@ -2020,7 +2035,7 @@ function renderFileList() {
     const group = sheets.slice(gi, gj);
     // Blank spacer row at the TOP of each discipline section
     bodyRows += `
-          <tr class="rev-blank"><td colspan="5"></td></tr>`;
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
     bodyRows += group.map(sheetRowHtml).join('');
     // Subtotal row: numeric count only (no text label), shown in the
     // Sheet Name column so it reads directly under the sheet names
@@ -2031,8 +2046,9 @@ function renderFileList() {
             <td class="rev-count">${group.length} sheet${group.length !== 1 ? 's' : ''}</td>
             <td></td>
             <td></td>
+            <td></td>
           </tr>
-          <tr class="rev-blank"><td colspan="5"></td></tr>`;
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
     gi = gj;
   }
   bodyRows += `
@@ -2040,6 +2056,7 @@ function renderFileList() {
             <td></td>
             <td>Grand Total</td>
             <td class="rev-count">${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}</td>
+            <td></td>
             <td></td>
             <td></td>
           </tr>`;
@@ -2064,6 +2081,12 @@ function renderFileList() {
       <thead><tr>
         <th style="width:40px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
         <th style="width:120px">Sheet #</th><th>Sheet Name</th>
+        <th style="width:170px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span>Volume</span>
+            <button class="btn btn-sm" onclick="rematchVolumes()" title="Reapply the Level 3 discipline volumes to these sheets (discards manual overrides)" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ ReMatch</button>
+          </div>
+        </th>
         <th style="width:320px">
           <div style="display:flex;align-items:center;gap:7px">
             <span>Discipline Sort Order</span>
@@ -2165,14 +2188,28 @@ function getProjectVolumes() {
   return S.project.volumes;
 }
 
+// The full set of volume names currently in play: the tracked project list plus
+// any volume typed into a Level 3 discipline or pinned onto a sheet. This is the
+// source for every volume dropdown so a value created in one place (e.g. a
+// custom "Volume-3" typed in Level 3) is immediately selectable everywhere.
+function allVolumeNames() {
+  if (!S.project) return ['Volume-1'];
+  const set = new Set(getProjectVolumes());
+  (S.project.disciplines || []).forEach(d => { if (d.volumeNum) set.add(d.volumeNum); });
+  (S.project.sheets || []).forEach(s => { if (s.volumeNum) set.add(s.volumeNum); });
+  if (!set.size) set.add('Volume-1');
+  return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
 function getAvailableVolumes() {
-  const vols = getProjectVolumes();
-  return vols.map(v => ({ label: v, value: v }));
+  return allVolumeNames().map(v => ({ label: v, value: v }));
 }
 
 function addNewVolume() {
   const vols = getProjectVolumes();
-  const nums = vols.map(v => {
+  // Number off the full union so we never collide with a volume that exists
+  // only on a discipline or sheet (not yet in the tracked project list).
+  const nums = allVolumeNames().map(v => {
     const m = v.match(/Volume-(\d+)/);
     return m ? parseInt(m[1]) : 0;
   });
@@ -2215,6 +2252,71 @@ function updateCoverSheetVolume(sheetNum, volumeNum) {
     if (s.sheetNum === sheetNum && s.discipline === 'X0') { s.volumeNum = volumeNum; changed = true; }
   });
   if (changed) saveDB();
+}
+
+// ── Level 3 ↔ Level 5 volume mapping ────────────────────────────────
+// A discipline's volume (set in Level 3) is the default for every sheet in that
+// discipline. A sheet may override it; ReMatch restores the discipline default.
+
+// The Level 3 volume for a discipline prefix. Unassigned/unknown → 'Volume-1'.
+function disciplineVolumeFor(prefix) {
+  if (!prefix) return 'Volume-1';
+  const d = S.project?.disciplines.find(x => x.prefix === prefix);
+  return (d && d.volumeNum) ? d.volumeNum : 'Volume-1';
+}
+
+// Effective volume shown for a sheet: its own pinned value, else its discipline
+// default. (After ensureSheetVolumes runs, volumeNum is always populated; the
+// fallbacks are defensive.)
+function sheetEffectiveVolume(s) {
+  return s.volumeNum || disciplineVolumeFor(s.discipline) || 'Volume-1';
+}
+
+// Migration/safety: give every sheet a concrete volumeNum matching its
+// discipline's Level 3 volume when it doesn't already carry one. Called at the
+// entry of the Review and Schedule renderers, mirroring ensurePkgCodes().
+function ensureSheetVolumes() {
+  if (!S.project) return;
+  let changed = false;
+  S.project.sheets.forEach(s => {
+    if (!s.volumeNum) { s.volumeNum = disciplineVolumeFor(s.discipline); changed = true; }
+  });
+  if (changed) saveDB();
+}
+
+// Level 5 per-sheet Volume dropdown. For Cover Drawing Index (X0) the volume is
+// a property of the sheet NUMBER, so write it across every package instance to
+// stay consistent with the Level 6 cover-index grouping; other disciplines are
+// per-record.
+function handleReviewSheetVolumeChange(sheetId, value) {
+  const s = S.project.sheets.find(x => x.id === sheetId);
+  if (!s) return;
+  const vol = value === '__ADD__' ? addNewVolume() : value;
+  if (!vol) return;
+  if (s.discipline === 'X0') updateCoverSheetVolume(s.sheetNum, vol);
+  else updateSheetVolume(sheetId, vol);
+  markDirty('upload');
+  renderFileList();
+}
+
+// ReMatch: reapply Level 3 discipline volumes to the sheets in the package
+// currently shown in the Review table, discarding any manual per-sheet
+// overrides for those sheets.
+function rematchVolumes() {
+  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
+  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
+  let count = 0;
+  sheets.forEach(s => {
+    const target = disciplineVolumeFor(s.discipline);
+    if (s.volumeNum !== target) { s.volumeNum = target; count++; }
+  });
+  markDirty('upload');
+  renderFileList();
+  setAlert('upload-alert',
+    count > 0
+      ? `ReMatch complete — ${count} sheet${count !== 1 ? 's' : ''} reset to the Level 3 discipline volume.`
+      : 'ReMatch — all sheets already match their Level 3 discipline volume.',
+    count > 0 ? 'success' : 'info');
 }
 
 // ================================================================
