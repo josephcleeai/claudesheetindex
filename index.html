@@ -1430,15 +1430,12 @@ function renderDisciplines() {
   const sorted = [...S.project.disciplines].sort((a,b) =>
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => {
-    // Active-usage indicator: check mark + bold when this Disciplines Sort Order
-    // is used by any package; otherwise the cell keeps its default styling.
+    // Active-usage indicator: bold when this Disciplines Sort Order is used by
+    // any package; otherwise the cell keeps its default styling.
     const inUse = disciplineInUse(d.prefix);
     const sortOrderStyle = inUse
       ? 'display:inline-block;white-space:nowrap;color:var(--text);font-size:12px;font-weight:700'
       : 'display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px';
-    const check = inUse
-      ? '<span style="color:var(--green);font-weight:700;margin-right:5px" aria-hidden="true">✓✓✓</span>'
-      : '';
     const cellTitle = inUse
       ? 'In use — assigned to sheets in one or more packages'
       : 'Auto-generated from Order and Discipline Name';
@@ -1446,7 +1443,7 @@ function renderDisciplines() {
     <tr data-prefix="${escHtml(d.prefix)}">
       <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:80px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
-      <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${check}${escHtml(d.order)}-${escHtml(d.name)}</span></td>
+      <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
       <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
