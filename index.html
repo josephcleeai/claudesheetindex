@@ -364,6 +364,27 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 #file-list .data-table{table-layout:fixed;min-width:760px}
 #file-list .data-table th{white-space:nowrap}
 #file-list .disc-cell{display:flex;align-items:center;gap:5px;min-width:0}
+
+/* Per-volume sheet counts shown under the Level 5 package tabs */
+#pkg-vol-summary{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px}
+#pkg-vol-summary .pvs-pkg{
+  font-family:var(--display);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:0.3px;color:var(--text2);margin-right:2px;
+}
+#pkg-vol-summary .pvs-chip{
+  font-family:var(--mono);font-size:11px;color:var(--text);
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:3px;padding:2px 7px;white-space:nowrap;
+}
+#pkg-vol-summary .pvs-chip .pvs-vol{font-weight:600}
+#pkg-vol-summary .pvs-chip .pvs-num{font-weight:700}
+#pkg-vol-summary .pvs-chip-unassigned{color:var(--amber);background:var(--amber-bg);border-color:#E8CFA4}
+#pkg-vol-summary .pvs-total{
+  font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text);
+  background:var(--accent-light);border:1px solid var(--border);
+  border-radius:3px;padding:2px 7px;white-space:nowrap;
+}
+#pkg-vol-summary .pvs-empty{font-size:11px;color:var(--text3);font-style:italic}
 #file-list .disc-cell select{flex:1 1 auto;min-width:0;width:100%;border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius);font-family:var(--sans);font-size:12px;background:var(--surface);color:var(--text)}
 
 /* Level 5 Review: per-discipline subtotal, blank spacer, and grand total rows */
@@ -717,6 +738,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     </div>
     <input id="file-input" type="file" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)"/>
     <div id="pkg-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:14px;border-bottom:1px solid var(--border)"></div>
+    <div id="pkg-vol-summary"></div>
     <div style="margin-top:12px">
       <button class="btn btn-sm" onclick="addManualSheetUpload()">+ Add Sheet Manually</button>
     </div>
@@ -1718,6 +1740,53 @@ function selectUploadPkg(pkgId) {
   renderFileList();
 }
 
+// Sheet counts per volume for one package, sorted by volume number with
+// "Unassigned" last. Single source of truth for both the summary under the
+// package tabs and the Volume Totals rows inside the Review table, so the two
+// can never disagree.
+function volumeCountsForPackage(pkgId) {
+  if (!S.project) return [];
+  const counts = new Map();
+  S.project.sheets
+    .filter(s => s.packageId === pkgId)
+    .forEach(s => {
+      const v = sheetEffectiveVolume(s) || 'Unassigned';
+      counts.set(v, (counts.get(v) || 0) + 1);
+    });
+  return [...counts.keys()]
+    .sort((a, b) => {
+      if (a === 'Unassigned') return 1;
+      if (b === 'Unassigned') return -1;
+      return a.localeCompare(b, 'en', { numeric: true });
+    })
+    .map(vol => ({ vol, n: counts.get(vol) }));
+}
+
+// Volume sheet-count summary shown directly under the package tabs for the
+// package currently open. Re-rendered from renderFileList(), which every volume
+// edit already routes through, so the numbers track changes automatically.
+function renderPkgVolumeSummary() {
+  const el = document.getElementById('pkg-vol-summary');
+  if (!el) return;
+  if (!S.project || !S.project.packages.length) { el.innerHTML = ''; return; }
+  const pkgId = S._uploadPkgId || S.project.packages[0]?.id;
+  const pkg = S.project.packages.find(p => p.id === pkgId);
+  if (!pkg) { el.innerHTML = ''; return; }
+
+  const pairs = volumeCountsForPackage(pkgId);
+  if (!pairs.length) {
+    el.innerHTML = `<span class="pvs-pkg">${escHtml(pkg.name)}</span><span class="pvs-empty">no sheets yet</span>`;
+    return;
+  }
+  const total = pairs.reduce((sum, p) => sum + p.n, 0);
+  const chips = pairs.map(({ vol, n }) =>
+    `<span class="pvs-chip${vol === 'Unassigned' ? ' pvs-chip-unassigned' : ''}">
+       <span class="pvs-vol">${escHtml(vol)}</span> = <span class="pvs-num">${n}</span> sheet${n !== 1 ? 's' : ''}
+     </span>`
+  ).join('');
+  el.innerHTML = `<span class="pvs-pkg">${escHtml(pkg.name)}:</span>${chips}<span class="pvs-total">Total = ${total} sheet${total !== 1 ? 's' : ''}</span>`;
+}
+
 function savePackages(silent) {
   saveDB(); S.dirty['packages'] = false;
   unlockUpTo('upload');
@@ -2013,6 +2082,7 @@ function autoAssignAllDisciplines() {
 function renderFileList() {
   renderPkgTabs();
   ensureSheetVolumes(); // backfill each sheet's volume from its Level 3 discipline default
+  renderPkgVolumeSummary(); // per-volume sheet counts under the package tabs
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
   let sheets = S.project.sheets.filter(s => s.packageId === pkgId);
   const el = document.getElementById('file-list');
@@ -2132,17 +2202,8 @@ function renderFileList() {
   // spread across several sections. This rollup reports how many sheets land in
   // each volume for the package currently shown. Sheets with no volume yet are
   // reported under "Unassigned" rather than being folded into a real volume.
-  const volCounts = new Map();
-  sheets.forEach(s => {
-    const v = sheetEffectiveVolume(s) || 'Unassigned';
-    volCounts.set(v, (volCounts.get(v) || 0) + 1);
-  });
-  const volKeys = [...volCounts.keys()].sort((a, b) => {
-    if (a === 'Unassigned') return 1;
-    if (b === 'Unassigned') return -1;
-    return a.localeCompare(b, 'en', { numeric: true });
-  });
-  if (volKeys.length) {
+  const volPairs = volumeCountsForPackage(pkgId);
+  if (volPairs.length) {
     bodyRows += `
           <tr class="rev-blank"><td colspan="6"></td></tr>
           <tr class="rev-volhdr">
@@ -2152,14 +2213,13 @@ function renderFileList() {
             <td></td>
             <td></td>
           </tr>`;
-    volKeys.forEach(v => {
-      const n = volCounts.get(v);
+    volPairs.forEach(({ vol, n }) => {
       bodyRows += `
           <tr class="rev-voltotal">
             <td></td>
             <td></td>
             <td class="rev-count">${n} sheet${n !== 1 ? 's' : ''}</td>
-            <td class="rev-volname">${escHtml(v)}</td>
+            <td class="rev-volname">${escHtml(vol)}</td>
             <td></td>
             <td></td>
           </tr>`;
