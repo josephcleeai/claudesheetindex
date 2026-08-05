@@ -388,7 +388,27 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   border-bottom:1px solid var(--border);
 }
 .data-table tr.rev-section:hover td{background:var(--surface2)}
-.data-table tr.rev-section .disc-cell select{text-transform:none;letter-spacing:0;font-family:var(--mono)}
+/* Per-volume totals rollup: header row + one row per volume */
+.data-table tr.rev-volhdr td{
+  background:var(--surface2);padding:5px 12px;
+  font-size:11px;font-weight:700;letter-spacing:0.3px;
+  color:var(--text2);font-family:var(--display);text-transform:uppercase;
+  border-bottom:1px solid var(--border);
+}
+.data-table tr.rev-volhdr:hover td{background:var(--surface2)}
+.data-table tr.rev-voltotal td{
+  background:var(--surface);padding:4px 12px;
+  font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);
+}
+.data-table tr.rev-voltotal:hover td{background:var(--surface)}
+.data-table tr.rev-voltotal td.rev-count{font-family:var(--mono);padding-left:19px;color:var(--text)}
+.data-table tr.rev-voltotal td.rev-volname{font-family:var(--mono);font-weight:600;color:var(--text)}
+/* Section Volume dropdown matches the section row's own text: same display
+   font and size, bold. */
+.data-table tr.rev-section .disc-cell select{
+  font-family:var(--display);font-size:11px;font-weight:700;
+  letter-spacing:0.3px;text-transform:uppercase;color:var(--text);
+}
 .data-table tr.rev-grandtotal td{
   background:var(--accent-light);border-top:2px solid var(--border2);border-bottom:none;
   padding:10px 12px;font-size:12px;font-weight:700;letter-spacing:0.3px;
@@ -619,7 +639,6 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
             <th style="width:360px;text-align:left">Discipline Name</th>
             <th style="width:200px;text-align:left">Disciplines Sort Order</th>
             <th style="width:120px;text-align:left">Prefix</th>
-            <th style="width:130px;text-align:left">Volume</th>
             <th style="width:90px;text-align:right">Delete</th>
           </tr>
         </thead>
@@ -912,6 +931,11 @@ const FALLBACK_STATUS_SYMBOLS = {1:'1',2:'2',3:'3',4:'4',5:'5',6:'0'};
 // Volume options always offered in every volume dropdown (Level 3 and Level 5).
 // Additional volumes created via "Add New Volume" are appended to these.
 const DEFAULT_VOLUME_OPTIONS = ['Volume-1','Volume-2','Volume-3','Volume-4'];
+
+// Level 3 sentinel: a discipline set to "Not Apply" contributes no volume to its
+// sheets — those sheets are assigned manually from the Level 5 Volume dropdown.
+// It is a discipline-level setting only and never appears as a sheet volume.
+const VOLUME_NOT_APPLY = 'Not Apply';
 
 function statusSymbolFor(statusId) {
   if (statusId == null || statusId === '') return '';
@@ -1453,26 +1477,12 @@ function renderDisciplines() {
     const cellTitle = inUse
       ? 'In use — assigned to sheets in one or more packages'
       : 'Auto-generated from Order and Discipline Name';
-    // Volume applies only to disciplines actually used by a package. Unused
-    // disciplines render an empty, disabled dropdown so the field reads as
-    // "not applicable" rather than offering a value that nothing would consume.
-    // Any previously saved volume is retained in the data and reappears if the
-    // discipline comes back into use.
-    const volCell = inUse
-      ? `<select class="mono" style="width:120px" title="Volume for this discipline — applied to its sheets on Update / Save"
-           onchange="handleDiscVolumeChange('${escHtml(d.prefix)}',this.value)">
-           ${volumeOptionsHtml(d.volumeNum || 'Volume-1')}
-         </select>`
-      : `<select class="mono" style="width:120px" disabled title="Not used in any package — assign sheets to this discipline in Level 5 to set a volume">
-           <option value="" selected></option>
-         </select>`;
     return `
     <tr data-prefix="${escHtml(d.prefix)}">
       <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:80px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
       <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
       <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
-      <td style="text-align:left">${volCell}</td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `;
@@ -1482,19 +1492,6 @@ function renderDisciplines() {
 
 function setDiscSortDir(dir) {
   S._discSortDir = dir;
-  renderDisciplines();
-}
-
-// Level 3 Volume dropdown. Selecting "+ Add New Volume" mints the next volume
-// and assigns it. The value is held in the working project and written to the
-// sheets when the user presses Update / Save.
-function handleDiscVolumeChange(prefix, value) {
-  const vol = value === '__ADD__' ? addNewVolume() : value;
-  if (!vol) return;
-  const d = S.project.disciplines.find(x => String(x.prefix) === String(prefix));
-  if (!d) return;
-  d.volumeNum = vol;
-  markDirty('disciplines');
   renderDisciplines();
 }
 
@@ -1554,39 +1551,19 @@ function deleteDisc(prefix) {
   ]);
 }
 
-// Push each discipline's saved Volume onto every sheet assigned to it, across
-// all packages. Called on Level 3 Update / Save so Level 5 Review reflects the
-// saved mapping. Disciplines with no volume set are skipped.
-function applyDisciplineVolumesToSheets() {
-  if (!S.project) return 0;
-  const volByPrefix = {};
-  S.project.disciplines.forEach(d => { if (d.volumeNum) volByPrefix[d.prefix] = d.volumeNum; });
-  let count = 0;
-  S.project.sheets.forEach(s => {
-    const target = volByPrefix[s.discipline];
-    if (target && s.volumeNum !== target) { s.volumeNum = target; count++; }
-  });
-  return count;
-}
-
 function saveDisciplines(silent) {
   const prefixes = S.project.disciplines.map(d => d.prefix);
   if (new Set(prefixes).size !== prefixes.length) {
     setAlert('disc-alert', 'Duplicate prefixes detected. Each discipline must have a unique prefix.', 'danger');
     return false;
   }
-  // Sync the saved volumes down to the sheets before persisting, so Level 5
-  // Review opens already matching Level 3.
-  const synced = applyDisciplineVolumesToSheets();
+  // NOTE: Volume is no longer set in Level 3 — the Volume column was removed and
+  // Level 5 Review now owns volume assignment (per-sheet and per-section
+  // dropdowns). Saving disciplines therefore must NOT touch sheet volumes, or it
+  // would silently wipe the user's Level 5 assignments from an invisible field.
   saveDB(); S.dirty['disciplines'] = false;
   unlockUpTo('packages');
-  if (!silent) {
-    setAlert('disc-alert',
-      synced > 0
-        ? `Disciplines saved — ${synced} sheet${synced !== 1 ? 's' : ''} updated to the saved discipline volumes.`
-        : 'Disciplines saved.',
-      'success');
-  }
+  if (!silent) setAlert('disc-alert', 'Disciplines saved.', 'success');
   return true;
 }
 
@@ -2070,7 +2047,7 @@ function renderFileList() {
             <td>
               <div class="disc-cell">
                 <select onchange="handleReviewSheetVolumeChange('${s.id}',this.value)" title="Volume — set from the section row above or the Level 3 discipline; override per sheet here.">
-                  ${volumeOptionsHtml(sheetEffectiveVolume(s))}
+                  ${volumeOptionsHtml(sheetEffectiveVolume(s), sheetEffectiveVolume(s) ? null : '— select —')}
                 </select>
               </div>
             </td>
@@ -2097,23 +2074,30 @@ function renderFileList() {
     bodyRows += `
           <tr class="rev-blank"><td colspan="6"></td></tr>`;
     // ── Section top row: discipline label + a Volume dropdown that applies to
-    // every sheet in this section. Shows the section's shared volume, or a
-    // "mixed" placeholder when its sheets currently disagree.
+    // every sheet in this section. Shows the section's shared volume, a "mixed"
+    // placeholder when its sheets disagree, or a "select" placeholder when the
+    // discipline is set to "Not Apply" and nothing has been assigned yet.
     const discObj   = S.project.disciplines.find(d => d.prefix === key);
     const discLabel = key
       ? (discObj ? `${discObj.order}-${discObj.name}` : key)
       : '— unassigned —';
+    const isNotApply = !!discObj && discObj.volumeNum === VOLUME_NOT_APPLY;
     const groupVols  = [...new Set(group.map(s => sheetEffectiveVolume(s)))];
     const sharedVol  = groupVols.length === 1 ? groupVols[0] : '';
-    const mixedLabel = groupVols.length > 1 ? '— mixed —' : null;
+    const placeholder = groupVols.length > 1
+      ? '— mixed —'
+      : (sharedVol ? null : '— select —');
+    const naBadge = isNotApply
+      ? `<span title="Level 3 volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets manually" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
+      : '';
     bodyRows += `
           <tr class="rev-section">
             <td></td>
-            <td colspan="2">${escHtml(discLabel)}</td>
+            <td colspan="2">${escHtml(discLabel)}${naBadge}</td>
             <td>
               <div class="disc-cell">
                 <select onchange="setSectionVolume('${escHtml(key)}',this.value)" title="Set the volume for every sheet in this section">
-                  ${volumeOptionsHtml(sharedVol, mixedLabel)}
+                  ${volumeOptionsHtml(sharedVol, placeholder)}
                 </select>
               </div>
             </td>
@@ -2135,6 +2119,46 @@ function renderFileList() {
           <tr class="rev-blank"><td colspan="6"></td></tr>`;
     gi = gj;
   }
+
+  // ── Per-volume totals for this package ────────────────────────────
+  // Sheets are grouped on screen by discipline, so a volume's sheets can be
+  // spread across several sections. This rollup reports how many sheets land in
+  // each volume for the package currently shown. Sheets with no volume yet are
+  // reported under "Unassigned" rather than being folded into a real volume.
+  const volCounts = new Map();
+  sheets.forEach(s => {
+    const v = sheetEffectiveVolume(s) || 'Unassigned';
+    volCounts.set(v, (volCounts.get(v) || 0) + 1);
+  });
+  const volKeys = [...volCounts.keys()].sort((a, b) => {
+    if (a === 'Unassigned') return 1;
+    if (b === 'Unassigned') return -1;
+    return a.localeCompare(b, 'en', { numeric: true });
+  });
+  if (volKeys.length) {
+    bodyRows += `
+          <tr class="rev-blank"><td colspan="6"></td></tr>
+          <tr class="rev-volhdr">
+            <td></td>
+            <td colspan="2">Volume Totals</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>`;
+    volKeys.forEach(v => {
+      const n = volCounts.get(v);
+      bodyRows += `
+          <tr class="rev-voltotal">
+            <td></td>
+            <td></td>
+            <td class="rev-count">${n} sheet${n !== 1 ? 's' : ''}</td>
+            <td class="rev-volname">${escHtml(v)}</td>
+            <td></td>
+            <td></td>
+          </tr>`;
+    });
+  }
+
   bodyRows += `
           <tr class="rev-grandtotal">
             <td></td>
@@ -2165,12 +2189,7 @@ function renderFileList() {
       <thead><tr>
         <th style="width:40px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
         <th style="width:120px">Sheet #</th><th>Sheet Name</th>
-        <th style="width:170px">
-          <div style="display:flex;align-items:center;gap:7px">
-            <span>Volume</span>
-            <button class="btn btn-sm" onclick="rematchVolumes()" title="Reapply the Level 3 discipline volumes to these sheets (discards manual overrides)" style="padding:2px 8px;font-size:11px;white-space:nowrap;font-family:var(--mono);letter-spacing:0">↺ ReMatch</button>
-          </div>
-        </th>
+        <th style="width:170px">Volume</th>
         <th style="width:320px">
           <div style="display:flex;align-items:center;gap:7px">
             <span>Discipline Sort Order</span>
@@ -2283,19 +2302,26 @@ function allVolumeNames() {
     (S.project.disciplines || []).forEach(d => { if (d.volumeNum) set.add(d.volumeNum); });
     (S.project.sheets || []).forEach(s => { if (s.volumeNum) set.add(s.volumeNum); });
   }
+  // "Not Apply" is a Level 3 discipline setting, never a real volume.
+  set.delete(VOLUME_NOT_APPLY);
   return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
 // Shared <option> list for every volume dropdown. `selected` is the currently
-// chosen value ('' renders the blank placeholder as selected).
-function volumeOptionsHtml(selected, blankLabel) {
+// chosen value ('' renders the blank placeholder as selected). `notApply` adds
+// "Not Apply" as the FIRST option — used only by the Level 3 discipline
+// dropdown, since it is not a valid per-sheet volume.
+function volumeOptionsHtml(selected, blankLabel, notApply) {
   const opts = allVolumeNames().map(v =>
     `<option value="${escHtml(v)}" ${selected === v ? 'selected' : ''}>${escHtml(v)}</option>`
   ).join('');
   const blank = blankLabel != null
     ? `<option value="" ${!selected ? 'selected' : ''}>${escHtml(blankLabel)}</option>`
     : '';
-  return `${blank}${opts}<option value="__ADD__">+ Add New Volume</option>`;
+  const na = notApply
+    ? `<option value="${escHtml(VOLUME_NOT_APPLY)}" ${selected === VOLUME_NOT_APPLY ? 'selected' : ''}>${escHtml(VOLUME_NOT_APPLY)}</option>`
+    : '';
+  return `${blank}${na}${opts}<option value="__ADD__">+ Add New Volume</option>`;
 }
 
 function getAvailableVolumes() {
@@ -2351,32 +2377,50 @@ function updateCoverSheetVolume(sheetNum, volumeNum) {
   if (changed) saveDB();
 }
 
-// ── Level 3 ↔ Level 5 volume mapping ────────────────────────────────
-// A discipline's volume (set in Level 3) is the default for every sheet in that
-// discipline. A sheet may override it; ReMatch restores the discipline default.
+// Volume for a deduplicated Level 6 schedule row, read from whichever sheet
+// record carries one. Used when a discipline's volume is "Not Apply" and its
+// sheets are therefore assigned individually.
+function scheduleRowVolume(row) {
+  const rec = S.project.sheets.find(s => s.sheetNum === row.sheetNum && s.volumeNum);
+  return rec?.volumeNum || 'Unassigned';
+}
 
-// The Level 3 volume for a discipline prefix. Unassigned/unknown → 'Volume-1'.
+// ── Volume assignment — owned by Level 5 Review ──────────────────────
+// Volume is set in Level 5 (per-sheet dropdown, or the section top row for a
+// whole discipline section). Level 3 no longer exposes a Volume field. The
+// per-discipline value below is only a seed for newly added sheets: any stored
+// discipline volume — including a legacy "Not Apply" — still resolves here, but
+// nothing in the UI writes it, so a Level 3 save never disturbs Level 5 values.
+
+// Seed volume for a discipline prefix, or '' when it contributes none (legacy
+// "Not Apply", or an unknown discipline). Empty means "assign in Level 5".
 function disciplineVolumeFor(prefix) {
-  if (!prefix) return 'Volume-1';
+  if (!prefix) return '';
   const d = S.project?.disciplines.find(x => x.prefix === prefix);
-  return (d && d.volumeNum) ? d.volumeNum : 'Volume-1';
+  if (!d) return '';
+  if (d.volumeNum === VOLUME_NOT_APPLY) return '';
+  return d.volumeNum || 'Volume-1';
 }
 
 // Effective volume shown for a sheet: its own pinned value, else its discipline
-// default. (After ensureSheetVolumes runs, volumeNum is always populated; the
-// fallbacks are defensive.)
+// default. Returns '' for a sheet with no volume under a "Not Apply" discipline,
+// which the Level 5 dropdown renders as an unselected placeholder rather than
+// implying an assignment that was never made.
 function sheetEffectiveVolume(s) {
-  return s.volumeNum || disciplineVolumeFor(s.discipline) || 'Volume-1';
+  return s.volumeNum || disciplineVolumeFor(s.discipline) || '';
 }
 
 // Migration/safety: give every sheet a concrete volumeNum matching its
-// discipline's Level 3 volume when it doesn't already carry one. Called at the
-// entry of the Review and Schedule renderers, mirroring ensurePkgCodes().
+// discipline's Level 3 volume when it doesn't already carry one. Sheets under a
+// "Not Apply" discipline are deliberately left unset for manual assignment.
 function ensureSheetVolumes() {
   if (!S.project) return;
   let changed = false;
   S.project.sheets.forEach(s => {
-    if (!s.volumeNum) { s.volumeNum = disciplineVolumeFor(s.discipline); changed = true; }
+    if (!s.volumeNum) {
+      const def = disciplineVolumeFor(s.discipline);
+      if (def) { s.volumeNum = def; changed = true; }
+    }
   });
   if (changed) saveDB();
 }
@@ -2414,26 +2458,6 @@ function setSectionVolume(prefix, value) {
   saveDB();
   markDirty('upload');
   renderFileList();
-}
-
-// ReMatch: reapply Level 3 discipline volumes to the sheets in the package
-// currently shown in the Review table, discarding any manual per-sheet
-// overrides for those sheets.
-function rematchVolumes() {
-  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
-  const sheets = S.project.sheets.filter(s => s.packageId === pkgId);
-  let count = 0;
-  sheets.forEach(s => {
-    const target = disciplineVolumeFor(s.discipline);
-    if (s.volumeNum !== target) { s.volumeNum = target; count++; }
-  });
-  markDirty('upload');
-  renderFileList();
-  setAlert('upload-alert',
-    count > 0
-      ? `ReMatch complete — ${count} sheet${count !== 1 ? 's' : ''} reset to the Level 3 discipline volume.`
-      : 'ReMatch — all sheets already match their Level 3 discipline volume.',
-    count > 0 ? 'success' : 'info');
 }
 
 // ================================================================
@@ -2597,8 +2621,12 @@ function renderSchedule() {
     
     // Find the discipline object and its current volume assignment
     const disc = S.project.disciplines.find(d => d.prefix === group.prefix);
-    const discVolumeNum = disc?.volumeNum || 'Volume-1';
+    const discIsNotApply = !!disc && disc.volumeNum === VOLUME_NOT_APPLY;
+    const discVolumeNum = discIsNotApply ? '' : (disc?.volumeNum || 'Volume-1');
     const isCoverIndex = group.prefix === 'X0';
+    // A "Not Apply" discipline has no single volume — its sheets are assigned
+    // individually, so group them per sheet just like the Cover Index.
+    const perSheetVolumes = isCoverIndex || discIsNotApply;
     
     // Build volume options dropdown
     const availVols = getAvailableVolumes();
@@ -2608,17 +2636,18 @@ function renderSchedule() {
     html += `<div class="disc-separator" style="display:flex;align-items:center;justify-content:space-between">
       <span>${escHtml(group.label)}</span>
       <select class="form-input" style="width:150px;padding:4px 8px;font-size:12px" onchange="handleVolumeSelectorChange('${group.prefix}',this.value)">
-        ${isCoverIndex ? '<option value="">Per-sheet volume →</option>' : volOptionsWithAdd}
+        ${perSheetVolumes ? '<option value="">Per-sheet volume →</option>' : volOptionsWithAdd}
       </select>
     </div>`;
 
-    // For Cover Drawing Index: group by per-sheet volume; otherwise by discipline volume
+    // Cover Index and "Not Apply" disciplines group by per-sheet volume;
+    // everything else uses the single discipline volume.
     let volumeGroups = [];
-    if (isCoverIndex) {
+    if (perSheetVolumes) {
       // Group sheets by their individual (per-sheet-number) volume assignment.
       const volMap = new Map();
       group.rows.forEach(row => {
-        const vol = coverSheetVolume(row.sheetNum);
+        const vol = isCoverIndex ? coverSheetVolume(row.sheetNum) : scheduleRowVolume(row);
         if (!volMap.has(vol)) volMap.set(vol, []);
         volMap.get(vol).push(row);
       });
