@@ -403,18 +403,16 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .data-table tr.rev-voltotal:hover td{background:var(--surface)}
 .data-table tr.rev-voltotal td.rev-count{font-family:var(--mono);padding-left:19px;color:var(--text)}
 .data-table tr.rev-voltotal td.rev-volname{font-family:var(--mono);font-weight:600;color:var(--text)}
-/* Section Volume dropdown matches the section row's own text: same display
-   font and size, bold. */
-/* Section Volume dropdown matches the sheet Volume dropdown's text: font family
-   and size both come from the shared `#file-list .disc-cell select` rule above,
-   so the two are identical by construction. Here we only add the section-level
-   emphasis (bold) and the blue text colour, and cancel the uppercase/tracking
-   the section row's <td> would otherwise impose.
+/* Section Volume dropdown matches the sheet Volume dropdown's text exactly:
+   font family, size and weight all come from the shared
+   `#file-list .disc-cell select` rule above, so the two are identical by
+   construction. Here we only set the dark-red text colour and cancel the
+   uppercase/tracking the section row's <td> would otherwise impose.
    NOTE: scoped under #file-list so it outranks `#file-list .disc-cell select`,
    which sets color:var(--text) and would otherwise win on specificity. */
 #file-list tr.rev-section .disc-cell select{
-  font-weight:700;
-  letter-spacing:0;text-transform:none;color:rgb(0,0,255);
+  font-weight:normal;
+  letter-spacing:0;text-transform:none;color:rgb(128,0,0);
 }
 .data-table tr.rev-grandtotal td{
   background:var(--accent-light);border-top:2px solid var(--border2);border-bottom:none;
@@ -1476,11 +1474,13 @@ function renderDisciplines() {
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => {
     // Active-usage indicator: bold when this Disciplines Sort Order is used by
-    // any package; otherwise the cell keeps its default styling.
+    // any package; otherwise the cell keeps its default styling. The value is
+    // always displayed uppercase (display-only — the stored name is unchanged),
+    // matching the uppercase Discipline Name column it is derived from.
     const inUse = disciplineInUse(d.prefix);
     const sortOrderStyle = inUse
-      ? 'display:inline-block;white-space:nowrap;color:var(--text);font-size:12px;font-weight:700'
-      : 'display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px';
+      ? 'display:inline-block;white-space:nowrap;text-transform:uppercase;color:var(--text);font-size:12px;font-weight:700'
+      : 'display:inline-block;white-space:nowrap;text-transform:uppercase;color:var(--text2);font-size:12px';
     const cellTitle = inUse
       ? 'In use — assigned to sheets in one or more packages'
       : 'Auto-generated from Order and Discipline Name';
