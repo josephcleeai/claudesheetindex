@@ -1413,21 +1413,45 @@ function confirmDeleteProject(id) {
 // ================================================================
 // DISCIPLINES — LEVEL 3
 // ================================================================
+// A discipline is "in use" when at least one sheet living in an existing
+// package is assigned to it (sheet.discipline stores the discipline's prefix).
+// Package deletion also deletes its sheets, so the valid-package guard is
+// belt-and-suspenders against any legacy/orphaned records.
+function disciplineInUse(prefix) {
+  if (!S.project || !prefix) return false;
+  const validPkgIds = new Set(S.project.packages.map(p => p.id));
+  return S.project.sheets.some(s => s.discipline === prefix && validPkgIds.has(s.packageId));
+}
+
 function renderDisciplines() {
   if (!S.project) return;
   const tbody = document.getElementById('disc-tbody');
   const dir = S._discSortDir === 'desc' ? -1 : 1;
   const sorted = [...S.project.disciplines].sort((a,b) =>
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
-  tbody.innerHTML = sorted.map(d => `
+  tbody.innerHTML = sorted.map(d => {
+    // Active-usage indicator: check mark + bold when this Disciplines Sort Order
+    // is used by any package; otherwise the cell keeps its default styling.
+    const inUse = disciplineInUse(d.prefix);
+    const sortOrderStyle = inUse
+      ? 'display:inline-block;white-space:nowrap;color:var(--text);font-size:12px;font-weight:700'
+      : 'display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px';
+    const check = inUse
+      ? '<span style="color:var(--green);font-weight:700;margin-right:5px" aria-hidden="true">✓✓✓</span>'
+      : '';
+    const cellTitle = inUse
+      ? 'In use — assigned to sheets in one or more packages'
+      : 'Auto-generated from Order and Discipline Name';
+    return `
     <tr data-prefix="${escHtml(d.prefix)}">
       <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:80px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)"/></td>
-      <td style="text-align:left"><span class="mono" style="display:inline-block;white-space:nowrap;color:var(--text2);font-size:12px" title="Auto-generated from Order and Discipline Name">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
+      <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${check}${escHtml(d.order)}-${escHtml(d.name)}</span></td>
       <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
   _updateSortBtnState('disc-sort', S._discSortDir);
 }
 
@@ -1470,7 +1494,13 @@ function updateDiscPrefix(oldPrefix, newPrefix) {
     renderDisciplines(); return;
   }
   const d = S.project.disciplines.find(x => String(x.prefix) === String(oldPrefix));
-  if (d) { d.prefix = newPrefix; markDirty('disciplines'); }
+  if (d) {
+    d.prefix = newPrefix;
+    markDirty('disciplines');
+    // Prefix drives the sheet↔discipline match, so re-render to refresh the
+    // active-usage check mark / bold state for this row.
+    renderDisciplines();
+  }
 }
 
 function addDiscipline() {
