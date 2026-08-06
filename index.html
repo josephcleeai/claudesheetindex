@@ -642,7 +642,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Projects</div>
-      <div class="view-sub">Define project identity and generate a unique project number.</div>
+      <div class="view-sub">Define project identity, a 6-character code name, and generate a unique project number.</div>
     </div>
     <div id="pill-project" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -658,6 +658,11 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <div class="form-group">
         <label class="form-label">Project Name</label>
         <input id="proj-name" class="form-input" type="text" placeholder="e.g., New Stadium Renovation" oninput="markDirty('project')"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Code Name <span style="font-weight:400;color:var(--text3)">&mdash; up to 6 letters or numbers, no symbols</span></label>
+        <input id="proj-code" class="form-input mono" style="width:150px;text-transform:none" type="text" maxlength="6" placeholder="KCS26A" oninput="sanitizeCodeName(this)"/>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Prefixes every Level 6 export filename. Falls back to the project number when left blank.</div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -944,11 +949,14 @@ function hideStorageWarning() {
   if (el) el.remove();
 }
 
-// ── Sidebar "last updated" timestamp ──────────────────────────────
-// Format: YYYY-MM-DD-hh-mm-ss (year-month-day-hour24-minute-second).
-function fmtStamp(d) {
+// ── Local timestamp formatting ─────────────────────────────────────
+// Format: YYYY-MM-DD-hh-mm-ss (year-month-day-hour24-minute-second), local
+// time — the same convention the project number uses. Pass withSeconds=false
+// for the YYYY-MM-DD-hh-mm form used in export filenames.
+function fmtStamp(d, withSeconds = true) {
   const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
+  return withSeconds ? `${base}-${p(d.getSeconds())}` : base;
 }
 
 // Record "now" as the latest update and refresh the sidebar display.
@@ -1280,6 +1288,30 @@ function updateProjectNum() {
   markDirty('project');
 }
 
+// ── Project Code Name ─────────────────────────────────────────────
+// A short handle for the project, used as the prefix of every Level 6 export
+// filename. Limited to 6 characters, letters and digits only — no symbols,
+// spaces or punctuation, so it is always safe in a filename. Case is preserved
+// as typed. Optional: exports fall back to the project number when it is blank.
+const CODE_NAME_MAX = 6;
+function normalizeCodeName(v) {
+  return String(v ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, CODE_NAME_MAX);
+}
+// Strips disallowed characters as they are typed or pasted, holding the caret
+// roughly in place rather than jumping it to the end of the field.
+function sanitizeCodeName(el) {
+  const before = el.value;
+  const after  = normalizeCodeName(before);
+  if (after !== before) {
+    const pos   = el.selectionStart ?? after.length;
+    const delta = before.length - after.length;
+    el.value = after;
+    const next = Math.max(0, Math.min(after.length, pos - delta));
+    try { el.setSelectionRange(next, next); } catch (_) {}
+  }
+  markDirty('project');
+}
+
 function refreshProjectNum() {
   document.getElementById('proj-num').value = genProjectNum();
   markDirty('project');
@@ -1287,6 +1319,7 @@ function refreshProjectNum() {
 
 function initProject() {
   document.getElementById('proj-name').value = '';
+  document.getElementById('proj-code').value = '';
   document.getElementById('proj-state').value = '';
   document.getElementById('proj-city').value = '';
   document.getElementById('proj-zip').value = '';
@@ -1329,7 +1362,8 @@ function _readProjectForm(excludeId) {
       [{label:'OK', primary:true, action:closeModal}]);
     return null;
   }
-  return { name, num };
+  const codeName = normalizeCodeName(document.getElementById('proj-code').value);
+  return { name, num, codeName };
 }
 
 // Always creates a brand-new project from the current form contents,
@@ -1349,6 +1383,7 @@ function createProject() {
     order: Date.now(),
     name: fields.name,
     num: fields.num,
+    codeName: fields.codeName,
     country: document.getElementById('proj-country').value,
     state: document.getElementById('proj-state').value,
     city: document.getElementById('proj-city').value,
@@ -1387,6 +1422,7 @@ function saveProject(silent) {
   }
   S.project.name = fields.name;
   S.project.num = fields.num;
+  S.project.codeName = fields.codeName;
   S.project.country = document.getElementById('proj-country').value;
   S.project.state = document.getElementById('proj-state').value;
   S.project.city = document.getElementById('proj-city').value;
@@ -1409,6 +1445,7 @@ function editProject(id) {
   if (!p) return;
   S._editingProjectId = id;
   document.getElementById('proj-name').value = p.name || '';
+  document.getElementById('proj-code').value = p.codeName || '';
   document.getElementById('proj-num').value = p.num || '';
   document.getElementById('proj-state').value = p.state || '';
   document.getElementById('proj-city').value = p.city || '';
@@ -1431,6 +1468,7 @@ function saveProjectEdits() {
   if (!fields) return;
   p.name = fields.name;
   p.num = fields.num;
+  p.codeName = fields.codeName;
   p.country = document.getElementById('proj-country').value;
   p.state = document.getElementById('proj-state').value;
   p.city = document.getElementById('proj-city').value;
@@ -1511,6 +1549,7 @@ function loadProject(id) {
     S.project = p;
     S._editingProjectId = null;
     document.getElementById('proj-name').value = p.name || '';
+    document.getElementById('proj-code').value = p.codeName || '';
     document.getElementById('proj-num').value = p.num || '';
     document.getElementById('proj-state').value = p.state || '';
     document.getElementById('proj-city').value = p.city || '';
@@ -3280,6 +3319,32 @@ function bulkSetIssuedField(field) {
     `${label} set to "${escHtml(v || EXPORT_DEFAULT_TBD)}" on ${n} sheet${n !== 1 ? 's' : ''}.`, 'success');
 }
 
+// ── Export filenames ─────────────────────────────────────────────────
+// Format: <Code Name>_<Export File Type>_<YYYY-MM-DD-hh-mm>.<ext>
+//   e.g. KCS26A_XLSX_2026-08-06-14-32.xlsx
+// The prefix is the Level 2 Code Name, which is already constrained to 6
+// alphanumerics and so is always filename-safe. Projects saved before the field
+// existed have none, so it falls back to the project number — sanitized, since
+// that field is free text and may contain characters illegal in a filename.
+// The timestamp is local time at the moment of export, matching the project
+// number's own CC-YYMMDD-hhmm convention, so two exports in the same minute
+// collide by design — the browser disambiguates with its own "(1)" suffix.
+const EXPORT_TYPE_XLSX  = 'XLSX';
+const EXPORT_TYPE_CSV   = 'CSV';
+const EXPORT_TYPE_REVIT = 'REVIT';   // tab-delimited .txt for schedule import
+const EXPORT_TYPE_JSON  = 'JSON';
+const EXPORT_TYPE_PDF   = 'PDF';     // Print/PDF: used as the document title,
+                                     // which browsers offer as the Save-as-PDF name
+function exportFilePrefix() {
+  const code = normalizeCodeName(S.project?.codeName);
+  if (code) return code;
+  const num = String(S.project?.num || '').replace(/[\\/:*?"<>|]+/g, '-').trim();
+  return num || 'PROJECT';
+}
+function exportFileBase(type) {
+  return `${exportFilePrefix()}_${type}_${fmtStamp(new Date(), false)}`;
+}
+
 // ── The single source of truth for every export format ───────────────
 // Returns { cols, spec, rows, groups, grand }:
 //   cols   enabled columns, in the user's order — what every format emits
@@ -3429,7 +3494,7 @@ function exportXLSX() {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
-  XLSX.writeFile(wb, `${S.project.num}_SheetIndex.xlsx`);
+  XLSX.writeFile(wb, `${exportFileBase(EXPORT_TYPE_XLSX)}.xlsx`);
 }
 
 // ── CSV ──────────────────────────────────────────────────────────────
@@ -3458,7 +3523,7 @@ function exportCSV() {
   push(exportTotalCells(cols,
     up(`Grand total · ${grand.total} sheet${grand.total !== 1 ? 's' : ''}`), grand.counts).cells);
 
-  dl(lines.join('\n'), `${S.project.num}_SheetIndex.csv`, 'text/csv');
+  dl(lines.join('\n'), `${exportFileBase(EXPORT_TYPE_CSV)}.csv`, 'text/csv');
 }
 
 // ── Revit (tab-delimited) ────────────────────────────────────────────
@@ -3471,7 +3536,7 @@ function exportRevit() {
   const clean = v => String(v ?? '').replace(/[\t\r\n]+/g, ' ');
   const lines = [cols.map(c => c.label).join('\t')];
   rows.forEach(r => lines.push(cols.map(c => clean(r.values[c.id])).join('\t')));
-  dl(lines.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
+  dl(lines.join('\n'), `${exportFileBase(EXPORT_TYPE_REVIT)}.txt`, 'text/plain');
 }
 
 // ── JSON ─────────────────────────────────────────────────────────────
@@ -3482,7 +3547,7 @@ function exportJSON() {
   const { cols, rows } = buildExportModel();
   if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
   const obj = {
-    project: {num:S.project.num, name:S.project.name, country:S.project.country, state:S.project.state, city:S.project.city, zip:S.project.zip},
+    project: {num:S.project.num, codeName:S.project.codeName || '', name:S.project.name, country:S.project.country, state:S.project.state, city:S.project.city, zip:S.project.zip},
     disciplines: S.project.disciplines,
     packages: S.project.packages.map(p => ({id:p.id, name:p.name, abbr:p.abbr, due:p.due, pCode:p.pCode})),
     statuses: S.project.statuses,
@@ -3494,7 +3559,7 @@ function exportJSON() {
     }),
     exported: new Date().toISOString()
   };
-  dl(JSON.stringify(obj, null, 2), `${S.project.num}_SheetIndex.json`, 'application/json');
+  dl(JSON.stringify(obj, null, 2), `${exportFileBase(EXPORT_TYPE_JSON)}.json`, 'application/json');
 }
 
 // ── Print / PDF ──────────────────────────────────────────────────────
@@ -3506,7 +3571,10 @@ function printSchedule() {
   const up = v => String(v ?? '').toUpperCase();
   const totalCols = cols.length;
 
-  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${up(`Sheet Index — ${S.project.num}`)}</title>
+  // Browsers offer document.title as the Save-as-PDF filename, so the title IS
+  // the filename base — the descriptive heading lives in the <h1>/<h2> below.
+  const pdfName = exportFileBase(EXPORT_TYPE_PDF);
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${escHtmlRaw(pdfName)}</title>
   <style>
     body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
     h1{font-size:16px;margin-bottom:4px}
@@ -3756,7 +3824,9 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
   WORKFLOW
   1. Login  — create an account or use demo credentials
-  2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
+  2. Project — name project, set a 6-character alphanumeric Code Name, select country,
+                auto-generate project number (CC-YYMMDD-hhmm). The Code Name prefixes every
+                Level 6 export filename: <Code Name>_<TYPE>_<YYYY-MM-DD-hh-mm>
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
   4. Packages — 8 default packages (Sheet.Index.P0 … Sheet.Index.P7) with issue dates; names and
                 dates are editable. Sheet.Index.Codes are assigned automatically in creation order
