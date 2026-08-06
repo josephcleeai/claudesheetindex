@@ -474,10 +474,14 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   padding:7px 10px;
 }
 .ecol-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+/* max-width caps a pathologically long custom Sheet.Index.Code, but must clear
+   the longest built-in label — "DISCIPLINE SORT ORDER", 21 mono chars ≈ 150px,
+   plus ~100px of letter badge, arrows and checkbox. 260px left under 10px of
+   slack and ellipsized it on wider mono stacks; 340px leaves real headroom. */
 .ecol-chip{
   display:flex;align-items:center;gap:5px;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-  padding:3px 6px;max-width:260px;
+  padding:3px 6px;max-width:340px;
 }
 .ecol-chip.ecol-off{background:var(--surface2);opacity:0.55}
 .ecol-letter{
@@ -1680,10 +1684,13 @@ function saveDisciplines(silent) {
 // ================================================================
 // Sequential default Sheet Index Codes: "Sheet.Index.P0", "Sheet.Index.P1", ...
 // Scans existing packages for the Sheet.Index.P<number> pattern (legacy
-// "P<number> Code" values are also recognized) and returns the next index
-// after the highest one found. Falls back to the package count when no
-// pattern matches (e.g. all codes were manually edited), so new rows always
-// get a fresh, in-sequence default.
+// "P<number> Code" values are also recognized) and returns the LOWEST index not
+// already in use. Gap-filling rather than continuing past the highest index:
+// deleting the P5 package and adding another should reissue P5, not mint P9 and
+// leave a permanent hole in the sequence — a hole becomes a missing
+// SHEET.INDEX.P5 export column, which breaks a fixed Revit parameter mapping.
+// Falls back to the package count when no code matches the pattern (e.g. every
+// code was manually edited), so new rows still get a fresh default.
 const PKG_CODE_RE        = /^Sheet\.Index\.P(\d+)$/i;
 const PKG_CODE_LEGACY_RE = /^P(\d+)\s+Code$/i;
 function pkgCodeIndex(code) {
@@ -1691,12 +1698,42 @@ function pkgCodeIndex(code) {
   const m = PKG_CODE_RE.exec(s) || PKG_CODE_LEGACY_RE.exec(s);
   return m ? parseInt(m[1], 10) : -1;
 }
+function lowestFreePCodeIndex(extraUsed) {
+  const pkgs = S.project?.packages || [];
+  const used = new Set(extraUsed || []);
+  for (const p of pkgs) {
+    const i = pkgCodeIndex(p.pCode);
+    if (i >= 0) used.add(i);
+  }
+  if (!used.size) return pkgs.length ? 0 : 0;
+  let n = 0;
+  while (used.has(n)) n++;
+  return n;
+}
 function nextPCode() {
   const pkgs = S.project?.packages || [];
-  let max = -1;
-  for (const p of pkgs) max = Math.max(max, pkgCodeIndex(p.pCode));
-  const n = max >= 0 ? max + 1 : pkgs.length;
-  return `Sheet.Index.P${n}`;
+  const anyPattern = pkgs.some(p => pkgCodeIndex(p.pCode) >= 0);
+  if (!anyPattern) return `Sheet.Index.P${pkgs.length}`;
+  return `Sheet.Index.P${lowestFreePCodeIndex()}`;
+}
+
+// Where a package carrying `code` belongs in Level 4 order: immediately before
+// the first package whose Sheet.Index index is higher, so a reissued P5 lands
+// between P4 and P6 rather than at the bottom of the list. Packages with
+// manually edited (non-pattern) codes carry no sequence information and are
+// skipped, so they never drag a new package out of position.
+function pkgInsertIndexFor(code) {
+  const arr = S.project.packages;
+  const n = pkgCodeIndex(code);
+  if (n < 0) return arr.length;
+  for (let i = 0; i < arr.length; i++) {
+    const ci = pkgCodeIndex(arr[i].pCode);
+    if (ci >= 0 && ci > n) return i;
+  }
+  return arr.length;
+}
+function newPkgRecord(code) {
+  return { id: uid(), pCode: code, name: 'New Package', abbr: 'PKG', due: '2028-01-01', sheets: [] };
 }
 
 // Backward compatibility, two cases handled in one idempotent pass:
@@ -1713,12 +1750,16 @@ function ensurePkgCodes() {
     const m = PKG_CODE_LEGACY_RE.exec(String(p.pCode || '').trim());
     if (m) { p.pCode = `Sheet.Index.P${parseInt(m[1], 10)}`; changed = true; }
   });
-  let max = -1;
-  S.project.packages.forEach(p => { max = Math.max(max, pkgCodeIndex(p.pCode)); });
-  let next = max + 1;
+  // Backfill missing codes with the lowest free indices, matching nextPCode().
+  // On a fully uncoded legacy project this still yields P0, P1, P2 … in array
+  // order; on a mixed project it fills the holes instead of stacking past the
+  // highest existing code.
+  const assigned = [];
   S.project.packages.forEach(p => {
     if (p.pCode === undefined || p.pCode === null || p.pCode === '') {
-      p.pCode = `Sheet.Index.P${next++}`;
+      const n = lowestFreePCodeIndex(assigned);
+      assigned.push(n);
+      p.pCode = `Sheet.Index.P${n}`;
       changed = true;
     }
   });
@@ -1770,15 +1811,16 @@ function movePkg(id, dir) {
   renderPackages(); markDirty('packages');
 }
 
+// Adding a package reissues the lowest free Sheet.Index code and slots the row
+// into its sequence position, so the Level 4 list, the Level 5 package tabs, the
+// Level 6 preview and the export columns all stay in code order. On a project
+// with no gaps this is identical to appending.
+// NOTE: Level 4 array order is the chronological package order, so a mid-list
+// insert also joins the "latest package wins" chain for duplicate sheet names —
+// which is the intent: a reissued P5 sits chronologically between P4 and P6.
 function addPackage() {
-  S.project.packages.push({id:uid(), pCode:nextPCode(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
-  renderPackages(); markDirty('packages');
-}
-
-function insertPkgAfter(id) {
-  const arr = S.project.packages;
-  const i = arr.findIndex(x => x.id === id);
-  arr.splice(i+1, 0, {id:uid(), pCode:nextPCode(), name:'New Package', abbr:'PKG', due:'2028-01-01', sheets:[]});
+  const code = nextPCode();
+  S.project.packages.splice(pkgInsertIndexFor(code), 0, newPkgRecord(code));
   renderPackages(); markDirty('packages');
 }
 
@@ -3092,14 +3134,17 @@ function exportColLetter(i) {
   return s;
 }
 
-// One column slot per Level 4 package — nothing more. Slot ids are positional
-// (pkg0, pkg1, …) so a saved column order survives package renames and
-// Sheet.Index.Code edits. Earlier builds padded this list out to a fixed minimum
-// of nine slots, which left a trailing package column with no package behind it:
-// it exported blank in every row and occupied a letter for nothing.
+// One column slot per Level 4 package — nothing more. Slot ids are keyed to the
+// package's own id, so a saved column order survives package renames, code edits
+// AND insertions into the middle of the Level 4 list. (They were positional —
+// pkg0, pkg1, … — which silently reassigned every saved entry after an insert;
+// ensureExportCols() migrates those forward.) Earlier builds also padded this
+// list out to a fixed minimum of nine slots, which left a trailing package
+// column with no package behind it: blank in every row, occupying a letter for
+// nothing.
 function exportPkgSlots() {
   return S.project.packages.map((p, i) => ({
-    id: `pkg${i}`,
+    id: `pkg:${p.id}`,
     label: p.pCode || `Sheet.Index.P${i}`,
     pkg: p
   }));
@@ -3137,10 +3182,23 @@ function ensureExportCols() {
   const spec    = exportColumnSpec();
   const specIds = new Set(spec.map(c => c.id));
   const seen    = new Set();
-  let cfg = (Array.isArray(S.project.exportCols) ? S.project.exportCols : [])
+  const stored  = Array.isArray(S.project.exportCols) ? S.project.exportCols : [];
+
+  // Migrate legacy positional package ids (pkg0, pkg1, …) to the id of the
+  // package that currently occupies that position — the same package the old id
+  // referred to — so an existing saved order and its on/off flags carry over.
+  const migrated = stored.map(c => {
+    if (!c || typeof c.id !== 'string') return c;
+    const m = /^pkg(\d+)$/.exec(c.id);
+    if (!m) return c;
+    const p = S.project.packages[parseInt(m[1], 10)];
+    return p ? { ...c, id: `pkg:${p.id}` } : c;
+  });
+
+  let cfg = migrated
     .filter(c => c && specIds.has(c.id) && !seen.has(c.id) && seen.add(c.id))
     .map(c => ({ id: c.id, on: c.on !== false }));
-  let changed = cfg.length !== (S.project.exportCols || []).length;
+  let changed = JSON.stringify(cfg) !== JSON.stringify(stored);
 
   spec.forEach((col, i) => {
     if (cfg.some(c => c.id === col.id)) return;
@@ -3507,9 +3565,9 @@ function renderExportCols() {
     return `<div class="ecol-chip${c.on ? '' : ' ecol-off'}">
       <span class="ecol-letter">${letter}</span>
       <span class="ecol-name" title="${escHtml(col.label)}">${escHtml(col.label)}</span>
-      <button class="ecol-btn" onclick="moveExportCol('${c.id}',-1)" title="Move left"  ${i === 0 ? 'disabled' : ''}>&#9664;</button>
-      <button class="ecol-btn" onclick="moveExportCol('${c.id}',1)"  title="Move right" ${i === cfg.length - 1 ? 'disabled' : ''}>&#9654;</button>
-      <input type="checkbox" ${c.on ? 'checked' : ''} title="${c.on ? 'Included in every export' : 'Excluded from every export'}" onchange="toggleExportCol('${c.id}',this.checked)"/>
+      <button class="ecol-btn" onclick="moveExportCol('${escHtml(c.id)}',-1)" title="Move left"  ${i === 0 ? 'disabled' : ''}>&#9664;</button>
+      <button class="ecol-btn" onclick="moveExportCol('${escHtml(c.id)}',1)"  title="Move right" ${i === cfg.length - 1 ? 'disabled' : ''}>&#9654;</button>
+      <input type="checkbox" ${c.on ? 'checked' : ''} title="${c.on ? 'Included in every export' : 'Excluded from every export'}" onchange="toggleExportCol('${escHtml(c.id)}',this.checked)"/>
     </div>`;
   }).join('');
 
