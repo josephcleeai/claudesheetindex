@@ -660,9 +660,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <input id="proj-name" class="form-input" type="text" placeholder="e.g., New Stadium Renovation" oninput="markDirty('project')"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Code Name <span style="font-weight:400;color:var(--text3)">&mdash; up to 6 letters or numbers, no symbols</span></label>
+        <label class="form-label">Code Name <span style="font-weight:400;color:var(--text3)">&mdash; exactly 6 letters or numbers, no symbols or spaces</span></label>
         <input id="proj-code" class="form-input mono" style="width:150px;text-transform:none" type="text" maxlength="6" placeholder="KCS26A" oninput="sanitizeCodeName(this)"/>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">Prefixes every Level 6 export filename. Falls back to the project number when left blank.</div>
+        <div id="proj-code-hint" style="font-size:11px;margin-top:4px"></div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1290,12 +1290,20 @@ function updateProjectNum() {
 
 // ── Project Code Name ─────────────────────────────────────────────
 // A short handle for the project, used as the prefix of every Level 6 export
-// filename. Limited to 6 characters, letters and digits only — no symbols,
-// spaces or punctuation, so it is always safe in a filename. Case is preserved
-// as typed. Optional: exports fall back to the project number when it is blank.
-const CODE_NAME_MAX = 6;
+// filename. EXACTLY 6 characters, letters and digits only — no symbols, spaces
+// or punctuation, so it is always safe in a filename. Case is preserved as
+// typed. Required: a project cannot be saved with a partial code.
+// Two layers enforce this, because they catch different mistakes:
+//   • the input filter below strips illegal characters and caps length, so an
+//     over-long or symbol-bearing value can never sit in the field
+//   • _readProjectForm() rejects a SHORT value on save, which the filter cannot
+//     catch — a half-typed code is legal keystroke-by-keystroke
+const CODE_NAME_LEN = 6;
 function normalizeCodeName(v) {
-  return String(v ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, CODE_NAME_MAX);
+  return String(v ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, CODE_NAME_LEN);
+}
+function isValidCodeName(v) {
+  return normalizeCodeName(v).length === CODE_NAME_LEN;
 }
 // Strips disallowed characters as they are typed or pasted, holding the caret
 // roughly in place rather than jumping it to the end of the field.
@@ -1309,7 +1317,27 @@ function sanitizeCodeName(el) {
     const next = Math.max(0, Math.min(after.length, pos - delta));
     try { el.setSelectionRange(next, next); } catch (_) {}
   }
+  renderCodeNameHint();
   markDirty('project');
+}
+// Live character-count feedback, so a short code is caught while typing rather
+// than only at save time.
+function renderCodeNameHint() {
+  const hint = document.getElementById('proj-code-hint');
+  const el   = document.getElementById('proj-code');
+  if (!hint || !el) return;
+  const n = normalizeCodeName(el.value).length;
+  if (n === CODE_NAME_LEN) {
+    hint.style.color = 'var(--text3)';
+    hint.textContent = 'Prefixes every Level 6 export filename.';
+  } else if (n === 0) {
+    hint.style.color = 'var(--text3)';
+    hint.textContent = `${CODE_NAME_LEN} characters required. Prefixes every Level 6 export filename.`;
+  } else {
+    const left = CODE_NAME_LEN - n;
+    hint.style.color = 'var(--amber)';
+    hint.textContent = `${left} more character${left !== 1 ? 's' : ''} needed — exactly ${CODE_NAME_LEN} required.`;
+  }
 }
 
 function refreshProjectNum() {
@@ -1320,6 +1348,7 @@ function refreshProjectNum() {
 function initProject() {
   document.getElementById('proj-name').value = '';
   document.getElementById('proj-code').value = '';
+  renderCodeNameHint();
   document.getElementById('proj-state').value = '';
   document.getElementById('proj-city').value = '';
   document.getElementById('proj-zip').value = '';
@@ -1363,6 +1392,14 @@ function _readProjectForm(excludeId) {
     return null;
   }
   const codeName = normalizeCodeName(document.getElementById('proj-code').value);
+  if (!codeName) {
+    setAlert('proj-alert', `Code Name is required — exactly ${CODE_NAME_LEN} letters or numbers.`, 'danger');
+    return null;
+  }
+  if (codeName.length !== CODE_NAME_LEN) {
+    setAlert('proj-alert', `Code Name must be exactly ${CODE_NAME_LEN} characters — "${escHtml(codeName)}" is ${codeName.length}.`, 'danger');
+    return null;
+  }
   return { name, num, codeName };
 }
 
@@ -1446,6 +1483,7 @@ function editProject(id) {
   S._editingProjectId = id;
   document.getElementById('proj-name').value = p.name || '';
   document.getElementById('proj-code').value = p.codeName || '';
+  renderCodeNameHint();
   document.getElementById('proj-num').value = p.num || '';
   document.getElementById('proj-state').value = p.state || '';
   document.getElementById('proj-city').value = p.city || '';
@@ -1550,6 +1588,7 @@ function loadProject(id) {
     S._editingProjectId = null;
     document.getElementById('proj-name').value = p.name || '';
     document.getElementById('proj-code').value = p.codeName || '';
+    renderCodeNameHint();
     document.getElementById('proj-num').value = p.num || '';
     document.getElementById('proj-state').value = p.state || '';
     document.getElementById('proj-city').value = p.city || '';
@@ -3322,10 +3361,11 @@ function bulkSetIssuedField(field) {
 // ── Export filenames ─────────────────────────────────────────────────
 // Format: <Code Name>_<Export File Type>_<YYYY-MM-DD-hh-mm>.<ext>
 //   e.g. KCS26A_XLSX_2026-08-06-14-32.xlsx
-// The prefix is the Level 2 Code Name, which is already constrained to 6
+// The prefix is the Level 2 Code Name, which is required to be exactly 6
 // alphanumerics and so is always filename-safe. Projects saved before the field
-// existed have none, so it falls back to the project number — sanitized, since
-// that field is free text and may contain characters illegal in a filename.
+// existed have none — and cannot be re-saved without supplying one — so those
+// fall back to the project number, sanitized, since that field is free text and
+// may contain characters illegal in a filename.
 // The timestamp is local time at the moment of export, matching the project
 // number's own CC-YYMMDD-hhmm convention, so two exports in the same minute
 // collide by design — the browser disambiguates with its own "(1)" suffix.
@@ -3824,7 +3864,7 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
   WORKFLOW
   1. Login  — create an account or use demo credentials
-  2. Project — name project, set a 6-character alphanumeric Code Name, select country,
+  2. Project — name project, set a Code Name of exactly 6 alphanumerics, select country,
                 auto-generate project number (CC-YYMMDD-hhmm). The Code Name prefixes every
                 Level 6 export filename: <Code Name>_<TYPE>_<YYYY-MM-DD-hh-mm>
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
