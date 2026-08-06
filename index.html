@@ -2119,11 +2119,12 @@ function renderFileList() {
   // ── Discipline option lists, built once per render ────────────────
   // Two facets of the SAME assignment (sheet.discipline, which stores a
   // prefix), each ordered for how its column is meant to be scanned:
-  //   Discipline            → alphabetical by name, labelled "PREFIX — Name"
+  //   Discipline            → alphabetical by name, labelled "PREFIX-Name"
   //   Discipline Sort Order → by sort order, labelled "order-Name"
-  // The Discipline label deliberately matches the discipline group heading that
-  // getScheduleRows() emits for Level 6, so what you pick here is the string you
-  // will see over that group in the schedule, print, and CSV output.
+  // Both use a bare hyphen as the separator, matching the composite Disciplines
+  // Sort Order string built in Level 3 and exported to Excel column H.
+  // (Level 6's on-screen discipline group heading still reads "PREFIX — Name";
+  // that heading is produced by getScheduleRows() and is deliberately untouched.)
   // Both sort COPIES — sorting S.project.disciplines in place during a render
   // would silently rewrite the stored discipline order on every repaint.
   const discsByName = [...S.project.disciplines].sort((a, b) =>
@@ -2133,7 +2134,7 @@ function renderFileList() {
     String(a.order).localeCompare(String(b.order), 'en', { numeric: true }));
 
   const discNameOptions = sel => discsByName.map(d =>
-    `<option value="${escHtml(d.prefix)}" ${sel === d.prefix ? 'selected' : ''}>${escHtml(d.prefix)} — ${escHtml(d.name)}</option>`
+    `<option value="${escHtml(d.prefix)}" ${sel === d.prefix ? 'selected' : ''}>${escHtml(d.prefix)}-${escHtml(d.name)}</option>`
   ).join('');
   const discOrderOptions = sel => discsByOrder.map(d =>
     `<option value="${escHtml(d.prefix)}" ${sel === d.prefix ? 'selected' : ''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`
