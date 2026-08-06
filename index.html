@@ -460,6 +460,65 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .data-table tr.rev-grandtotal td.rev-count{font-family:var(--mono);text-transform:none;letter-spacing:0}
 /* Sort direction toggle buttons (shared by Level 3 and Level 5) */
 .sort-btn-active{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+
+/* ── Level 6 Export: column configuration + issued info panels ──────
+   Both panels share the same header row treatment so they read as a pair of
+   export settings sitting above the schedule preview. */
+.ecol-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.ecol-title{font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase}
+.ecol-count{font-family:var(--mono);font-size:11px;color:var(--text3)}
+/* Always-visible order preview: the exact column sequence every format emits */
+.ecol-order{
+  font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--text2);
+  background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:7px 10px;
+}
+.ecol-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ecol-chip{
+  display:flex;align-items:center;gap:5px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:3px 6px;max-width:260px;
+}
+.ecol-chip.ecol-off{background:var(--surface2);opacity:0.55}
+.ecol-letter{
+  font-family:var(--mono);font-size:10px;font-weight:700;color:var(--text);
+  background:var(--accent-light);border-radius:2px;padding:1px 4px;min-width:16px;text-align:center;flex-shrink:0;
+}
+.ecol-chip.ecol-off .ecol-letter{background:transparent;color:var(--text3)}
+.ecol-name{
+  font-family:var(--mono);font-size:11px;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.ecol-btn{
+  font-family:var(--mono);font-size:9px;line-height:1;padding:3px 4px;flex-shrink:0;
+  border:1px solid var(--border2);border-radius:2px;background:var(--surface);
+  color:var(--text2);cursor:pointer;transition:all .12s;
+}
+.ecol-btn:hover:not(:disabled){background:var(--accent);color:#fff;border-color:var(--accent)}
+.ecol-btn:disabled{opacity:0.3;cursor:default}
+.ecol-chip input[type=checkbox]{cursor:pointer;flex-shrink:0;margin:0}
+
+/* Issued Info: bulk row + scrollable per-sheet editor */
+.issued-bulk{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 10px;
+}
+.issued-bulk-label{font-size:11px;font-weight:600;color:var(--text2);font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px}
+.issued-input{height:28px;font-size:12px;width:190px;padding:3px 8px}
+.issued-table{
+  margin-top:10px;max-height:280px;overflow-y:auto;
+  border:1px solid var(--border);border-radius:var(--radius);
+}
+.issued-row{display:grid;grid-template-columns:130px 1fr 1fr;gap:8px;align-items:center;padding:4px 10px;border-bottom:1px solid var(--border)}
+.issued-row:last-child{border-bottom:none}
+.issued-head{
+  position:sticky;top:0;background:var(--surface2);z-index:1;
+  font-size:10px;font-weight:600;color:var(--text2);font-family:var(--display);
+  text-transform:uppercase;letter-spacing:0.3px;padding:6px 10px;
+}
+.issued-num{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.issued-row .issued-input{width:100%}
+.issued-empty{margin-top:10px;font-size:12px;color:var(--text3);font-style:italic}
 </style>
 </head>
 <body>
@@ -789,6 +848,8 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <button class="btn btn-sm" onclick="exportJSON()">Export JSON</button>
       <button class="btn btn-sm" onclick="printSchedule()">Print / PDF</button>
     </div>
+    <div id="export-cols-panel" style="margin-bottom:18px"></div>
+    <div id="issued-info-panel" style="margin-bottom:20px"></div>
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase">Status Definitions</div>
@@ -905,6 +966,8 @@ let S = {
   _schedSel: new Set(),      // selected sheetNums in Level 6 schedule
   _discSortDir: 'asc',       // Level 3 disciplines: 'asc' | 'desc' by Order #
   _sheetSortDir: 'asc',      // Level 5 uploaded sheets: 'asc' | 'desc' by Discipline order, then Sheet #
+  _exportColsOpen: false,    // Level 6: export column config controls expanded (session-only; the config itself persists on the project)
+  _issuedInfoOpen: false,    // Level 6: per-sheet Issued Info editor expanded (session-only)
   _editingProjectId: null    // Level 2: id of saved project currently loaded into the form for editing, or null when the form is in "create new" mode
 };
 
@@ -2619,6 +2682,10 @@ function deleteStatus(id) {
 function renderSchedule() {
   if (!S.project) return;
   ensurePkgCodes(); // migrate/backfill Sheet.Index codes before drawing headers
+  // Export settings render first and unconditionally — they are configuration,
+  // not sheet data, so they stay usable on a project with no sheets yet.
+  renderExportCols();
+  renderIssuedInfo();
   const container = document.getElementById('schedule-container');
   const packages  = S.project.packages;
 
@@ -2995,17 +3062,171 @@ function addManualSheetUpload() {
 // Builds the schedule as a typed row list — blank spacer, discipline header,
 // sheet, subtotal, grand total — mirroring renderSchedule() exactly, so that
 // XLSX/CSV/Print all reproduce the same structure shown in the Level 6 Export preview.
-function getScheduleRows() {
-  // Package columns follow Level 4 Packages order (top → bottom = left → right)
-  const sortedPkgs = S.project.packages;
-  const pkgCols = sortedPkgs.map(p => ({ id: p.id, label: `${p.name}${p.due ? ' (' + p.due + ')' : ''}` }));
+// ================================================================
+// LEVEL 6 EXPORT — CONFIGURABLE COLUMNS
+// ================================================================
+// Every export format (XLSX, CSV, Revit, JSON, Print/PDF) is generated from ONE
+// model built by buildExportModel(), so the user's column visibility and order
+// apply identically everywhere. Formats still differ in *row* structure — XLSX
+// and Revit stay flat one-row-per-sheet for BIM import, CSV and Print keep the
+// grouped discipline/subtotal layout — but never in which columns appear or in
+// what order.
+//
+// Default column set (all enabled, in this order):
+//   A SHEET NUMBER            B SHEET NAME
+//   C DISCIPLINE              D DISCIPLINE SORT ORDER
+//   E…M SHEET.INDEX.P0 … P8   (one per Level 4 package, padded to 9 slots)
+//   N SHEET CATEGORY          O SHEET.INDEX.VOLUME
+//   P WORKING OR PRINTED      Q ISSUED NAME
+//   R SHEET ISSUED DATE
+const EXPORT_PKG_MIN_COLS      = 9;        // guarantees Sheet.Index.P0–P8 on a default project
+const EXPORT_DEFAULT_WORKING   = 'PRINTED';
+const EXPORT_DEFAULT_TBD       = 'TBD';
 
+// Spreadsheet-style column letters for the config UI: 0→A … 25→Z, 26→AA.
+function exportColLetter(i) {
+  let s = '';
+  for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s;
+  return s;
+}
+
+// One column slot per Level 4 package, padded with sequential Sheet.Index codes
+// to EXPORT_PKG_MIN_COLS. Slot ids are positional (pkg0, pkg1, …) so a saved
+// column order survives package renames and Sheet.Index.Code edits.
+function exportPkgSlots() {
+  const packages = S.project.packages;
+  const slots = packages.map((p, i) => ({ id: `pkg${i}`, label: p.pCode || `Sheet.Index.P${i}`, pkg: p }));
+  let maxP = packages.length - 1;
+  packages.forEach(p => { maxP = Math.max(maxP, pkgCodeIndex(p.pCode)); });
+  const padCount = Math.max(0, EXPORT_PKG_MIN_COLS - packages.length);
+  for (let i = 1; i <= padCount; i++) {
+    slots.push({ id: `pkg${packages.length + i - 1}`, label: `Sheet.Index.P${maxP + i}`, pkg: null });
+  }
+  return slots;
+}
+
+// The full catalogue of exportable columns in DEFAULT order. `kind` drives
+// per-format treatment (XLSX number formats, subtotal counts, widths).
+function exportColumnSpec() {
+  const up = v => String(v || '').toUpperCase();
+  return [
+    { id: 'sheetNum',       label: 'SHEET NUMBER',          kind: 'text',  width: 14 },
+    { id: 'sheetName',      label: 'SHEET NAME',            kind: 'name',  width: 42 },
+    { id: 'discipline',     label: 'DISCIPLINE',            kind: 'text',  width: 26 },
+    { id: 'discSort',       label: 'DISCIPLINE SORT ORDER', kind: 'text',  width: 28 },
+    ...exportPkgSlots().map(s => ({ id: s.id, label: up(s.label), kind: 'pkg', pkg: s.pkg, width: 10 })),
+    { id: 'sheetCategory',  label: 'SHEET CATEGORY',        kind: 'text',  width: 24 },
+    { id: 'volume',         label: 'SHEET.INDEX.VOLUME',    kind: 'text',  width: 20 },
+    { id: 'workingPrinted', label: 'WORKING OR PRINTED',    kind: 'text',  width: 20 },
+    { id: 'issuedName',     label: 'ISSUED NAME',           kind: 'text',  width: 20 },
+    { id: 'issuedDate',     label: 'SHEET ISSUED DATE',     kind: 'text',  width: 20 },
+  ];
+}
+
+// Reconcile the saved config against the current spec, idempotently:
+//   • unknown ids (e.g. a package column that no longer exists) are dropped
+//   • new ids are inserted at their spec-relative position and enabled, so
+//     adding a 10th package puts SHEET.INDEX.P9 straight after P8 rather than
+//     at the far right
+//   • the user's order and on/off flags are otherwise preserved verbatim
+function ensureExportCols() {
+  if (!S.project) return [];
+  const spec    = exportColumnSpec();
+  const specIds = new Set(spec.map(c => c.id));
+  const seen    = new Set();
+  let cfg = (Array.isArray(S.project.exportCols) ? S.project.exportCols : [])
+    .filter(c => c && specIds.has(c.id) && !seen.has(c.id) && seen.add(c.id))
+    .map(c => ({ id: c.id, on: c.on !== false }));
+  let changed = cfg.length !== (S.project.exportCols || []).length;
+
+  spec.forEach((col, i) => {
+    if (cfg.some(c => c.id === col.id)) return;
+    let pos = cfg.length;
+    for (let j = i - 1; j >= 0; j--) {
+      const at = cfg.findIndex(c => c.id === spec[j].id);
+      if (at !== -1) { pos = at + 1; break; }
+    }
+    cfg.splice(pos, 0, { id: col.id, on: true });
+    changed = true;
+  });
+
+  S.project.exportCols = cfg;
+  if (changed) saveDB();
+  return cfg;
+}
+
+// SHEET CATEGORY is derived from the DISCIPLINE value by removing the prefix and
+// its hyphen: "A-Architecture" → "Architecture". Stripping by prefix LENGTH (not
+// at the first hyphen) keeps discipline names that themselves contain hyphens
+// intact, e.g. "IA-Interior-Architecture" → "Interior-Architecture".
+function sheetCategoryFrom(discValue, prefix) {
+  const v = String(discValue || '');
+  const p = String(prefix || '');
+  if (p && v.toUpperCase().startsWith(`${p.toUpperCase()}-`)) return v.slice(p.length + 1);
+  const i = v.indexOf('-');
+  return i >= 0 ? v.slice(i + 1) : v;
+}
+
+// ── Editable export fields: ISSUED NAME / SHEET ISSUED DATE ─────────
+// Both are properties of the sheet NUMBER, not of one package's record, because
+// exports carry one row per unique sheet number. Values are therefore written
+// across every package instance of that number — the same convention already
+// used for Cover Drawing Index volumes. An empty stored value falls back to the
+// "TBD" default, so clearing a field restores the default rather than blanking
+// the export.
+const ISSUED_FIELDS = ['issuedName', 'issuedDate'];
+
+function sheetIssuedField(sheetNum, field) {
+  const rec = S.project.sheets.find(s => s.sheetNum === sheetNum && s[field]);
+  return rec ? rec[field] : EXPORT_DEFAULT_TBD;
+}
+
+function setSheetIssuedField(sheetNum, field, value) {
+  if (!ISSUED_FIELDS.includes(field)) return;
+  const v = String(value ?? '').trim();
+  S.project.sheets.forEach(s => { if (s.sheetNum === sheetNum) s[field] = v; });
+  saveDB();
+  renderIssuedInfo();
+}
+
+// Bulk update: apply one value to every sheet in the project. A blank value
+// resets the field, which reads back as the "TBD" default.
+function bulkSetIssuedField(field) {
+  if (!ISSUED_FIELDS.includes(field)) return;
+  const input = document.getElementById(`bulk-${field}`);
+  const v = String(input ? input.value : '').trim();
+  S.project.sheets.forEach(s => { s[field] = v; });
+  saveDB();
+  renderIssuedInfo();
+  const n = new Set(S.project.sheets.map(s => s.sheetNum)).size;
+  const label = field === 'issuedName' ? 'Issued Name' : 'Sheet Issued Date';
+  setAlert('status-bulk-alert',
+    `${label} set to "${escHtml(v || EXPORT_DEFAULT_TBD)}" on ${n} sheet${n !== 1 ? 's' : ''}.`, 'success');
+}
+
+// ── The single source of truth for every export format ───────────────
+// Returns { cols, spec, rows, groups, grand }:
+//   cols   enabled columns, in the user's order — what every format emits
+//   rows   one entry per unique sheet number, each with a `values` map keyed by
+//          column id (all spec columns are computed, enabled or not)
+//   groups contiguous discipline groups with per-package counts, for the
+//          grouped formats (CSV, Print)
+function buildExportModel() {
+  ensurePkgCodes();   // migrate/backfill Sheet.Index codes before labelling columns
+  ensureExportCols();
+  const spec  = exportColumnSpec();
+  const byId  = new Map(spec.map(c => [c.id, c]));
+  const cols  = S.project.exportCols.filter(c => c.on).map(c => byId.get(c.id)).filter(Boolean);
+  const pkgCols = spec.filter(c => c.kind === 'pkg');
+
+  const packages  = S.project.packages;
   const discOrder = {};
   S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
 
-  // Latest package's Sheet Name wins for duplicate sheet numbers — mirrors renderSchedule
+  // Deduplicate to one row per sheet number — unchanged rules: sort by
+  // discipline order then sheet number, and the LATEST package's Sheet Name wins.
   const pkgIdx = {};
-  S.project.packages.forEach((p, i) => { pkgIdx[p.id] = i; });
+  packages.forEach((p, i) => { pkgIdx[p.id] = i; });
   const sheetMap = new Map();
   [...S.project.sheets]
     .sort((a, b) => {
@@ -3032,299 +3253,182 @@ function getScheduleRows() {
     return Number.isFinite(sid) && sid > 0;
   };
 
-  const groups = [];
-  let curGroup = null;
-  [...sheetMap.values()].forEach(row => {
-    const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
-    const discLabel = disc ? `${disc.prefix} — ${disc.name}` : (row.discipline || 'Unassigned');
-    if (!curGroup || curGroup.label !== discLabel) {
-      curGroup = { label: discLabel, rows: [] };
-      groups.push(curGroup);
-    }
-    curGroup.rows.push(row);
-  });
-
-  const out = [];
-  let grandTotal = 0;
-  const grandPkg = {};
-  pkgCols.forEach(p => { grandPkg[p.id] = 0; });
-
-  groups.forEach(group => {
-    out.push({ type: 'blank' });
-    out.push({ type: 'discipline', label: group.label });
-
-    group.rows.forEach(row => {
-      const statusValues = pkgCols.map(p => {
-        const sheetId = row.pkgMap[p.id];
-        if (!sheetId) return '';
-        const sh = S.project.sheets.find(s => s.id === sheetId);
-        return sh ? statusSymbolFor(sh.statusId) : '';
-      });
-      out.push({ type: 'sheet', sheetNum: row.sheetNum, sheetName: row.sheetName, statusValues });
-    });
-
-    const discTotal = group.rows.length;
-    const discPkg = {};
-    pkgCols.forEach(p => { discPkg[p.id] = 0; });
-    group.rows.forEach(row => {
-      pkgCols.forEach(p => { if (hasStatusNum(row.pkgMap[p.id])) discPkg[p.id]++; });
-    });
-    grandTotal += discTotal;
-    pkgCols.forEach(p => { grandPkg[p.id] += discPkg[p.id]; });
-
-    out.push({ type: 'subtotal', label: `Subtotal · ${discTotal} sheet${discTotal !== 1 ? 's' : ''}`, counts: pkgCols.map(p => discPkg[p.id]) });
-  });
-
-  out.push({ type: 'grandtotal', label: `Grand total · ${grandTotal} sheet${grandTotal !== 1 ? 's' : ''}`, counts: pkgCols.map(p => grandPkg[p.id]) });
-
-  return { pkgCols, rows: out };
-}
-
-function getScheduleData() {
-  // Package columns follow Level 4 Packages order — matches the Level 6 Export preview
-  const packages = S.project.packages;
-  const discOrder = {};
-  S.project.disciplines.forEach(d => { discOrder[d.prefix] = parseInt(d.order) || 999; });
-
-  // Build deduplicated sheet map — same logic as renderSchedule.
-  // Latest package's Sheet Name wins for duplicate sheet numbers; all other
-  // fields (discipline, etc.) keep their existing first-encountered behavior.
-  const pkgIdx = {};
-  packages.forEach((p, i) => { pkgIdx[p.id] = i; });
-  const sheetMap = new Map();
-  [...S.project.sheets]
-    .sort((a, b) => {
-      const da = discOrder[a.discipline] || 9999;
-      const db = discOrder[b.discipline] || 9999;
-      if (da !== db) return da - db;
-      return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
-    })
-    .forEach(s => {
-      const idx = pkgIdx[s.packageId] ?? -1;
-      if (!sheetMap.has(s.sheetNum)) {
-        sheetMap.set(s.sheetNum, { ref: s, name: s.sheetName, pkgMap: {}, _nameIdx: idx });
-      } else {
-        const row = sheetMap.get(s.sheetNum);
-        if (idx >= row._nameIdx) { row.name = s.sheetName; row._nameIdx = idx; }
-      }
-      sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s;
-    });
-
-  return [...sheetMap.values()].map(({ ref, name, pkgMap }) => {
-    const disc = S.project.disciplines.find(d => d.prefix === ref.discipline);
-    const row  = {
-      'Sheet Number':      ref.sheetNum,
-      'Sheet Name':        name,
-      'Discipline Prefix': ref.discipline || '',
-      'Discipline Name':   disc ? disc.name : '',
-      'Project Number':    S.project.num,
-      'Project Name':      S.project.name,
+  const rows = [...sheetMap.values()].map(r => {
+    const disc     = S.project.disciplines.find(d => d.prefix === r.discipline);
+    const discVal  = disc ? `${disc.prefix}-${disc.name}` : (r.discipline || '');
+    const values = {
+      sheetNum:       r.sheetNum,
+      sheetName:      r.sheetName,
+      discipline:     discVal,
+      discSort:       disc ? `${disc.order}-${disc.name}` : '',
+      sheetCategory:  sheetCategoryFrom(discVal, disc ? disc.prefix : r.discipline),
+      volume:         scheduleRowVolume(r),
+      workingPrinted: EXPORT_DEFAULT_WORKING,
+      issuedName:     sheetIssuedField(r.sheetNum, 'issuedName'),
+      issuedDate:     sheetIssuedField(r.sheetNum, 'issuedDate'),
     };
-    // One column per package — status definition number only (0–5 by default), blank if sheet not in package
-    packages.forEach(p => {
-      const s        = pkgMap[p.id];
-      const statusId = s ? (s.statusId || 1) : null;
-      const colKey   = `${p.name} (${p.due})`;
-      row[colKey]    = statusId != null ? statusSymbolFor(statusId) : '';
+    // Package columns: the status symbol for this sheet in that package, blank
+    // when the sheet is absent. Padded slots have no package and stay blank.
+    pkgCols.forEach(c => {
+      if (!c.pkg) { values[c.id] = ''; return; }
+      const sheetId = r.pkgMap[c.pkg.id];
+      const sh = sheetId ? S.project.sheets.find(s => s.id === sheetId) : null;
+      values[c.id] = sh ? statusSymbolFor(sh.statusId) : '';
     });
-    return row;
+    return {
+      ...r,
+      discLabel: disc ? `${disc.prefix} — ${disc.name}` : (r.discipline || 'Unassigned'),
+      values
+    };
   });
+
+  const countsFor = rs => {
+    const out = {};
+    pkgCols.forEach(c => { out[c.id] = c.pkg ? rs.filter(r => hasStatusNum(r.pkgMap[c.pkg.id])).length : 0; });
+    return out;
+  };
+
+  const groups = [];
+  rows.forEach(r => {
+    if (!groups.length || groups[groups.length - 1].label !== r.discLabel) {
+      groups.push({ label: r.discLabel, rows: [] });
+    }
+    groups[groups.length - 1].rows.push(r);
+  });
+  groups.forEach(g => { g.counts = countsFor(g.rows); });
+
+  return { cols, spec, rows, groups, grand: { total: rows.length, counts: countsFor(rows) } };
 }
 
-// XLSX export uses a flat "sheet parameter" layout (one row per unique sheet
-// number, no header/subtotal rows) so the file drops cleanly into Revit or
-// other BIM data tools. Column order is fixed by spec:
-//   A Sheet Number | B Sheet Name |
-//   C Working or Printed (constant default "Printed")
-//   D Package            (constant default "TBD")
-//   E Sheet Issue Date   (Level 4 issue date of the latest package containing the
-//     sheet — "latest package wins", matching the dedup convention)
-//   F Sheet Category     (Level 3 Discipline Name)
-//   G Discipline Name    (Level 3 Discipline Name)
-//   H Discipline Sort Order — composite `Order-Discipline Name` (e.g.
-//     "621-Electrical"), same convention as the Level 3 sort key
-//   I… one column per Level 4 package, headed by its Sheet.Index.Code. The
-//     header is padded with sequential codes to a minimum of 9 package columns
-//     so the default 8-package project still exports Sheet.Index.P0 …
-//     Sheet.Index.P8 = columns I–Q
-//     (padded columns carry blank cells).
-// Cell formats: A–H are Text (numFmt '@'); package status cells are Integer
-// (numFmt '0', true numbers when the status symbol is numeric — default 0–5).
-// Alignment: every cell is centered horizontally + middle-aligned vertically,
-// except Sheet Name (col B) data cells, which are left + middle. Requires the
-// xlsx-js-style build (stock SheetJS CE ignores the cell `s` style property).
-// Print/PDF intentionally keeps the grouped getScheduleRows() layout.
-const XLSX_MIN_PKG_COLS = 9;   // guarantees Sheet.Index.P0–P8 (I–Q) even on default projects
-const XLSX_TEXT_COLS    = 8;   // columns A–H carry Text format
+// Cells for a subtotal/grand-total line: the label occupies the leading run of
+// non-package columns, package columns carry their count, anything else blanks.
+// This keeps totals under the right package no matter how columns are reordered.
+function exportTotalCells(cols, label, counts) {
+  const firstPkg  = cols.findIndex(c => c.kind === 'pkg');
+  const labelSpan = firstPkg === -1 ? Math.max(1, cols.length) : Math.max(1, firstPkg);
+  const cells = cols.map((c, i) =>
+    i === 0 ? label : (i < labelSpan ? '' : (c.kind === 'pkg' ? counts[c.id] : ''))
+  );
+  return { cells, labelSpan };
+}
 
+// ── XLSX ─────────────────────────────────────────────────────────────
+// Flat "sheet parameter" layout (one row per unique sheet number, no grouping
+// or subtotal rows) so the file drops cleanly into Revit or other BIM tools.
+// Cell formats: package columns are Integer ('0') when the status symbol is
+// numeric; every other column is Text ('@'). Alignment is center + middle
+// everywhere except Sheet Name data cells, which are left + middle. Requires
+// the xlsx-js-style build — stock SheetJS CE ignores the cell `s` property.
 function exportXLSX() {
-  ensurePkgCodes(); // migrate/backfill Sheet.Index codes before building headers
-  const packages = S.project.packages;
-  const discOrder = {}, discName = {};
-  S.project.disciplines.forEach(d => {
-    discOrder[d.prefix] = parseInt(d.order) || 999;
-    discName[d.prefix]  = d.name;
-  });
+  const { cols, rows } = buildExportModel();
+  if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
 
-  // Deduplicate to one row per sheet number — same rules as renderSchedule:
-  // latest package's Sheet Name wins for duplicates.
-  const pkgIdx = {};
-  packages.forEach((p, i) => { pkgIdx[p.id] = i; });
-  const sheetMap = new Map();
-  [...S.project.sheets]
-    .sort((a, b) => {
-      const da = discOrder[a.discipline] || 9999;
-      const db = discOrder[b.discipline] || 9999;
-      if (da !== db) return da - db;
-      return a.sheetNum.localeCompare(b.sheetNum, 'en', { numeric: true });
-    })
-    .forEach(s => {
-      const idx = pkgIdx[s.packageId] ?? -1;
-      if (!sheetMap.has(s.sheetNum)) {
-        sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {}, _nameIdx: idx });
-      } else {
-        const row = sheetMap.get(s.sheetNum);
-        if (idx >= row._nameIdx) { row.sheetName = s.sheetName; row._nameIdx = idx; }
-      }
-      sheetMap.get(s.sheetNum).pkgMap[s.packageId] = s.id;
-    });
-
-  // Sheet-Index-Code header cells: real packages first, then sequential pad
-  // codes (continuing from the highest existing index) up to XLSX_MIN_PKG_COLS.
-  const pkgHeaders = packages.map(p => p.pCode || '');
-  let maxP = packages.length - 1;
-  packages.forEach(p => { maxP = Math.max(maxP, pkgCodeIndex(p.pCode)); });
-  const padCount = Math.max(0, XLSX_MIN_PKG_COLS - packages.length);
-  for (let i = 1; i <= padCount; i++) pkgHeaders.push(`Sheet.Index.P${maxP + i}`);
-
-  const header = [
-    'Sheet Number',
-    'Sheet Name',
-    'Working or Printed',
-    'Package',
-    'Sheet Issue Date',
-    'Sheet Category',
-    'Discipline Name',
-    'Discipline Sort Order',
-    ...pkgHeaders
-  ];
-  const aoa = [header];
-
-  // Status cells export as true integers when the symbol is numeric
-  // (default symbols 0–5); non-numeric custom symbols stay as text.
-  const statusCell = (sym) => {
+  const statusCell = sym => {
     if (sym === '' || sym == null) return '';
     const n = Number(sym);
     return Number.isFinite(n) ? n : sym;
   };
 
-  [...sheetMap.values()].forEach(row => {
-    const disc = S.project.disciplines.find(d => d.prefix === row.discipline);
-    const pkgVals = packages.map(p => {
-      const sheetId = row.pkgMap[p.id];
-      if (!sheetId) return '';
-      const sh = S.project.sheets.find(s => s.id === sheetId);
-      return sh ? statusCell(statusSymbolFor(sh.statusId)) : '';
-    });
-    for (let i = 0; i < padCount; i++) pkgVals.push('');
-    // Sheet Issue Date = issue date of the latest Level 4 package containing
-    // this sheet (highest array index), mirroring the "latest package wins" rule.
-    let issueDate = '';
-    packages.forEach(p => { if (row.pkgMap[p.id]) issueDate = p.due || ''; });
-    const discNameVal = disc ? disc.name : (row.discipline || '');
-    // H: composite sort key `Order-Discipline Name`, e.g. "621-Electrical"
-    const discSortVal = disc ? `${disc.order}-${disc.name}` : '';
-    aoa.push([
-      row.sheetNum,
-      row.sheetName,
-      'Printed',        // Working or Printed — default
-      'TBD',            // Package — default
-      issueDate,
-      discNameVal,      // Sheet Category
-      discNameVal,      // Discipline Name
-      discSortVal,
-      ...pkgVals
-    ]);
+  const aoa = [cols.map(c => c.label)];
+  rows.forEach(r => {
+    aoa.push(cols.map(c => (c.kind === 'pkg' ? statusCell(r.values[c.id]) : r.values[c.id])));
   });
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Formats + alignment. All cells center + middle; Sheet Name (col B,
-  // index 1) data cells left + middle. Header row stays fully centered.
-  // Columns A–H are Text ('@'); package columns are Integer ('0') on
-  // numeric cells only, so blanks/custom text symbols stay untyped.
-  const SHEET_NAME_COL = 1;
+  const ws    = XLSX.utils.aoa_to_sheet(aoa);
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let R = range.s.r; R <= range.e.r; R++) {
     for (let C = range.s.c; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      const cell = ws[addr];
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
       if (!cell) continue;
-      const horizontal = (C === SHEET_NAME_COL && R > 0) ? 'left' : 'center';
+      const col = cols[C];
+      const horizontal = (col && col.kind === 'name' && R > 0) ? 'left' : 'center';
       const s = { alignment: { vertical: 'center', horizontal } };
       if (R > 0) {
-        if (C < XLSX_TEXT_COLS) s.numFmt = '@';        // Text
-        else if (cell.t === 'n') s.numFmt = '0';       // Integer
+        if (col && col.kind === 'pkg') { if (cell.t === 'n') s.numFmt = '0'; }
+        else s.numFmt = '@';
       }
       cell.s = s;
     }
   }
-  // Readable default column widths: Sheet Name wide, statuses narrow
-  ws['!cols'] = [
-    { wch: 14 }, { wch: 42 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 26 }, { wch: 26 }, { wch: 28 },
-    ...pkgHeaders.map(() => ({ wch: 10 }))
-  ];
+  ws['!cols'] = cols.map(c => ({ wch: c.width || 20 }));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet Index');
   XLSX.writeFile(wb, `${S.project.num}_SheetIndex.xlsx`);
 }
 
+// ── CSV ──────────────────────────────────────────────────────────────
+// Keeps the grouped layout (blank spacer, discipline heading, sheet rows,
+// subtotal) and uppercases values, as before — only the columns are now
+// configurable.
 function exportCSV() {
-  const { pkgCols, rows } = getScheduleRows();
-  const up = v => String(v ?? '').toUpperCase();
-  const header = ['SHEET NUMBER', 'SHEET NAME', ...pkgCols.map(p => up(p.label))];
+  const { cols, groups, grand } = buildExportModel();
+  if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
+  const up  = v => String(v ?? '').toUpperCase();
   const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [header.map(esc).join(',')];
-  rows.forEach(r => {
-    let arr;
-    if (r.type === 'blank')            arr = header.map(() => '');
-    else if (r.type === 'discipline')  arr = [up(r.label), ...header.slice(1).map(() => '')];
-    else if (r.type === 'sheet')       arr = [up(r.sheetNum), up(r.sheetName), ...r.statusValues];
-    else /* subtotal | grandtotal */   arr = [up(r.label), '', ...r.counts];
-    lines.push(arr.map(esc).join(','));
+  const blank = cols.map(() => '');
+
+  const lines = [cols.map(c => esc(c.label)).join(',')];
+  const push  = arr => lines.push(arr.map(esc).join(','));
+
+  groups.forEach(g => {
+    push(blank);
+    push(cols.map((c, i) => (i === 0 ? up(g.label) : '')));
+    g.rows.forEach(r => push(cols.map(c => up(r.values[c.id]))));
+    const n = g.rows.length;
+    push(exportTotalCells(cols, up(`Subtotal · ${n} sheet${n !== 1 ? 's' : ''}`), g.counts).cells);
   });
+  push(exportTotalCells(cols,
+    up(`Grand total · ${grand.total} sheet${grand.total !== 1 ? 's' : ''}`), grand.counts).cells);
+
   dl(lines.join('\n'), `${S.project.num}_SheetIndex.csv`, 'text/csv');
 }
 
+// ── Revit (tab-delimited) ────────────────────────────────────────────
+// Flat, one row per unique sheet number, headed by the configured column labels
+// so a schedule-import add-in can map straight onto them.
 function exportRevit() {
-  // Tab-delimited format compatible with Revit schedule import add-ins
-  const data = getScheduleData();
-  if (!data.length) return;
-  const packages     = S.project.packages;
-  const fixedHeaders = ['Sheet Number','Sheet Name','Discipline Name','Project Number'];
-  const pkgHeaders   = packages.map(p => `${p.name} (${p.due})`);
-  const headers      = [...fixedHeaders, ...pkgHeaders];
-  const rows = [headers.join('\t'), ...data.map(r => headers.map(h => r[h] != null ? String(r[h]) : '').join('\t'))];
-  dl(rows.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
+  const { cols, rows } = buildExportModel();
+  if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
+  if (!rows.length) return;
+  const clean = v => String(v ?? '').replace(/[\t\r\n]+/g, ' ');
+  const lines = [cols.map(c => c.label).join('\t')];
+  rows.forEach(r => lines.push(cols.map(c => clean(r.values[c.id])).join('\t')));
+  dl(lines.join('\n'), `${S.project.num}_RevitImport.txt`, 'text/plain');
 }
 
+// ── JSON ─────────────────────────────────────────────────────────────
+// Same project/discipline/package/status envelope as before; the `sheets` array
+// now carries exactly the configured columns, keyed by label, in order.
+// `columns` is included so a consumer can read the order without inferring it.
 function exportJSON() {
+  const { cols, rows } = buildExportModel();
+  if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
   const obj = {
     project: {num:S.project.num, name:S.project.name, country:S.project.country, state:S.project.state, city:S.project.city, zip:S.project.zip},
     disciplines: S.project.disciplines,
-    packages: S.project.packages.map(p => ({id:p.id, name:p.name, abbr:p.abbr, due:p.due})),
+    packages: S.project.packages.map(p => ({id:p.id, name:p.name, abbr:p.abbr, due:p.due, pCode:p.pCode})),
     statuses: S.project.statuses,
-    sheets: getScheduleData(),
+    columns: cols.map(c => c.label),
+    sheets: rows.map(r => {
+      const o = {};
+      cols.forEach(c => { o[c.label] = r.values[c.id]; });
+      return o;
+    }),
     exported: new Date().toISOString()
   };
   dl(JSON.stringify(obj, null, 2), `${S.project.num}_SheetIndex.json`, 'application/json');
 }
 
+// ── Print / PDF ──────────────────────────────────────────────────────
+// Keeps the grouped printed-index layout; column set and order come from the
+// same config as every other format.
 function printSchedule() {
-  const { pkgCols, rows } = getScheduleRows();
+  const { cols, groups, grand } = buildExportModel();
+  if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
   const up = v => String(v ?? '').toUpperCase();
-  const totalCols = 2 + pkgCols.length;
+  const totalCols = cols.length;
+
   let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${up(`Sheet Index — ${S.project.num}`)}</title>
   <style>
     body{font-family:sans-serif;font-size:11px;padding:20px;color:#1a1916}
@@ -3346,28 +3450,164 @@ function printSchedule() {
   <h2>${up(`Project No. ${S.project.num}`)} &nbsp;·&nbsp; ${up(S.project.city||'')}${S.project.state ? ', ' + up(S.project.state) : ''}</h2>
   <p>${up(`Generated ${new Date().toLocaleString()}`)}</p>
   <table><thead><tr>
-    <th>SHEET #</th><th>SHEET NAME</th>
-    ${pkgCols.map(c => `<th class="num">${escHtmlRaw(up(c.label))}</th>`).join('')}
+    ${cols.map(c => `<th class="${c.kind === 'pkg' ? 'num' : ''}">${escHtmlRaw(up(c.label))}</th>`).join('')}
   </tr></thead><tbody>`;
 
-  rows.forEach(r => {
-    if (r.type === 'blank') {
-      html += `<tr class="blank-row"><td colspan="${totalCols}"></td></tr>`;
-    } else if (r.type === 'discipline') {
-      html += `<tr class="disc-head"><td colspan="${totalCols}">${escHtmlRaw(up(r.label))}</td></tr>`;
-    } else if (r.type === 'sheet') {
-      html += `<tr><td>${escHtmlRaw(up(r.sheetNum))}</td><td>${escHtmlRaw(up(r.sheetName))}</td>${r.statusValues.map(v => `<td class="num">${v !== '' ? escHtmlRaw(String(v)) : '-'}</td>`).join('')}</tr>`;
-    } else if (r.type === 'subtotal') {
-      html += `<tr class="subtotal-row"><td colspan="2">${escHtmlRaw(up(r.label))}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
-    } else if (r.type === 'grandtotal') {
-      html += `<tr class="grandtotal-row"><td colspan="2">${escHtmlRaw(up(r.label))}</td>${r.counts.map(c => `<td class="num">${c}</td>`).join('')}</tr>`;
+  const totalRow = (cls, label, counts) => {
+    const { cells, labelSpan } = exportTotalCells(cols, label, counts);
+    let tr = `<tr class="${cls}"><td colspan="${labelSpan}">${escHtmlRaw(String(cells[0]))}</td>`;
+    for (let i = labelSpan; i < cols.length; i++) {
+      tr += `<td class="${cols[i].kind === 'pkg' ? 'num' : ''}">${escHtmlRaw(String(cells[i]))}</td>`;
     }
+    return tr + '</tr>';
+  };
+
+  groups.forEach(g => {
+    html += `<tr class="blank-row"><td colspan="${totalCols}"></td></tr>`;
+    html += `<tr class="disc-head"><td colspan="${totalCols}">${escHtmlRaw(up(g.label))}</td></tr>`;
+    g.rows.forEach(r => {
+      html += '<tr>' + cols.map(c => {
+        const v = r.values[c.id];
+        if (c.kind === 'pkg') return `<td class="num">${v !== '' && v != null ? escHtmlRaw(String(v)) : '-'}</td>`;
+        return `<td>${escHtmlRaw(up(v))}</td>`;
+      }).join('') + '</tr>';
+    });
+    const n = g.rows.length;
+    html += totalRow('subtotal-row', up(`Subtotal · ${n} sheet${n !== 1 ? 's' : ''}`), g.counts);
   });
+  html += totalRow('grandtotal-row',
+    up(`Grand total · ${grand.total} sheet${grand.total !== 1 ? 's' : ''}`), grand.counts);
 
   html += `</tbody></table></body></html>`;
   const w = window.open('','_blank');
   w.document.write(html); w.document.close(); w.print();
 }
+
+// ================================================================
+// LEVEL 6 EXPORT — COLUMN CONFIG + ISSUED INFO PANELS
+// ================================================================
+function renderExportCols() {
+  const el = document.getElementById('export-cols-panel');
+  if (!el || !S.project) return;
+  const cfg  = ensureExportCols();
+  const spec = exportColumnSpec();
+  const byId = new Map(spec.map(c => [c.id, c]));
+  const onCount = cfg.filter(c => c.on).length;
+
+  // Letters number the ENABLED columns only, so they match the exported file.
+  let letterIdx = 0;
+  const chips = cfg.map((c, i) => {
+    const col = byId.get(c.id);
+    if (!col) return '';
+    const letter = c.on ? exportColLetter(letterIdx++) : '·';
+    return `<div class="ecol-chip${c.on ? '' : ' ecol-off'}">
+      <span class="ecol-letter">${letter}</span>
+      <span class="ecol-name" title="${escHtml(col.label)}">${escHtml(col.label)}</span>
+      <button class="ecol-btn" onclick="moveExportCol('${c.id}',-1)" title="Move left"  ${i === 0 ? 'disabled' : ''}>&#9664;</button>
+      <button class="ecol-btn" onclick="moveExportCol('${c.id}',1)"  title="Move right" ${i === cfg.length - 1 ? 'disabled' : ''}>&#9654;</button>
+      <input type="checkbox" ${c.on ? 'checked' : ''} title="${c.on ? 'Included in every export' : 'Excluded from every export'}" onchange="toggleExportCol('${c.id}',this.checked)"/>
+    </div>`;
+  }).join('');
+
+  const order = cfg.filter(c => c.on)
+    .map((c, i) => `${exportColLetter(i)} ${escHtml((byId.get(c.id) || {}).label || '')}`)
+    .join('  ·  ');
+
+  el.innerHTML = `
+    <div class="ecol-head">
+      <div class="ecol-title">Export Columns</div>
+      <span class="ecol-count">${onCount} of ${cfg.length} included</span>
+      <button class="btn btn-sm" onclick="toggleExportColsOpen()">${S._exportColsOpen ? 'Hide controls' : 'Edit columns'}</button>
+      <button class="btn btn-sm" onclick="resetExportCols()" title="Re-enable every column and restore the default order">Reset</button>
+    </div>
+    <div class="ecol-order" title="Column order used by XLSX, CSV, Revit, JSON and Print">${order || '<span style="color:var(--amber)">No columns enabled — exports are disabled.</span>'}</div>
+    ${S._exportColsOpen ? `<div class="ecol-grid">${chips}</div>` : ''}`;
+}
+
+function toggleExportColsOpen() {
+  S._exportColsOpen = !S._exportColsOpen;
+  renderExportCols();
+}
+
+function toggleExportCol(id, on) {
+  const cfg = ensureExportCols();
+  const c = cfg.find(x => x.id === id);
+  if (!c) return;
+  if (!on && cfg.filter(x => x.on).length <= 1) {
+    setAlert('status-bulk-alert', 'At least one export column must stay enabled.', 'danger');
+    renderExportCols();
+    return;
+  }
+  c.on = !!on;
+  saveDB();
+  renderExportCols();
+}
+
+function moveExportCol(id, dir) {
+  const cfg = ensureExportCols();
+  const i = cfg.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (i === -1 || j < 0 || j >= cfg.length) return;
+  [cfg[i], cfg[j]] = [cfg[j], cfg[i]];
+  saveDB();
+  renderExportCols();
+}
+
+function resetExportCols() {
+  S.project.exportCols = exportColumnSpec().map(c => ({ id: c.id, on: true }));
+  saveDB();
+  renderExportCols();
+  setAlert('status-bulk-alert', 'Export columns reset to the default order, all enabled.', 'info');
+}
+
+// ── ISSUED NAME / SHEET ISSUED DATE editor ───────────────────────────
+// Both fields are per sheet NUMBER, so this lists one row per unique number
+// (the same rows the exports emit). Bulk inputs at the top write every sheet at
+// once; the per-row inputs override individual sheets.
+function renderIssuedInfo() {
+  const el = document.getElementById('issued-info-panel');
+  if (!el || !S.project) return;
+  const nums = [...new Set(S.project.sheets.map(s => s.sheetNum))]
+    .sort((a, b) => String(a).localeCompare(String(b), 'en', { numeric: true }));
+
+  const rows = nums.map(num => `
+    <div class="issued-row">
+      <span class="mono issued-num" title="${escHtml(num)}">${escHtml(num)}</span>
+      <input class="form-input issued-input" value="${escHtml(sheetIssuedField(num, 'issuedName'))}"
+             title="Issued Name for ${escHtml(num)} — blank resets to ${EXPORT_DEFAULT_TBD}"
+             onchange="setSheetIssuedField('${escHtml(num)}','issuedName',this.value)"/>
+      <input class="form-input issued-input" value="${escHtml(sheetIssuedField(num, 'issuedDate'))}"
+             title="Sheet Issued Date for ${escHtml(num)} — blank resets to ${EXPORT_DEFAULT_TBD}"
+             onchange="setSheetIssuedField('${escHtml(num)}','issuedDate',this.value)"/>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="ecol-head">
+      <div class="ecol-title">Issued Info</div>
+      <span class="ecol-count">${nums.length} sheet${nums.length !== 1 ? 's' : ''}</span>
+      <button class="btn btn-sm" onclick="toggleIssuedInfoOpen()">${S._issuedInfoOpen ? 'Hide' : 'Edit per sheet'}</button>
+    </div>
+    <div class="issued-bulk">
+      <span class="issued-bulk-label">Set for all sheets</span>
+      <input class="form-input issued-input" id="bulk-issuedName" placeholder="Issued Name (${EXPORT_DEFAULT_TBD})"/>
+      <button class="btn btn-sm" onclick="bulkSetIssuedField('issuedName')" title="Apply this Issued Name to every sheet — blank resets to ${EXPORT_DEFAULT_TBD}">Apply</button>
+      <input class="form-input issued-input" id="bulk-issuedDate" placeholder="Sheet Issued Date (${EXPORT_DEFAULT_TBD})"/>
+      <button class="btn btn-sm" onclick="bulkSetIssuedField('issuedDate')" title="Apply this Sheet Issued Date to every sheet — blank resets to ${EXPORT_DEFAULT_TBD}">Apply</button>
+    </div>
+    ${S._issuedInfoOpen ? (nums.length ? `
+      <div class="issued-table">
+        <div class="issued-row issued-head">
+          <span>Sheet #</span><span>Issued Name</span><span>Sheet Issued Date</span>
+        </div>
+        ${rows}
+      </div>` : '<div class="issued-empty">No sheets uploaded yet.</div>') : ''}`;
+}
+
+function toggleIssuedInfoOpen() {
+  S._issuedInfoOpen = !S._issuedInfoOpen;
+  renderIssuedInfo();
+}
+
 
 function dl(content, filename, type) {
   const blob = new Blob([content], {type});
