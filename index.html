@@ -3072,15 +3072,17 @@ function addManualSheetUpload() {
 // grouped discipline/subtotal layout — but never in which columns appear or in
 // what order.
 //
-// Default column set (all enabled, in this order):
+// Default column set (all enabled, in this order). Package columns are one per
+// Level 4 package — there is no synthetic padding, so no column ever exports
+// blank for want of a package behind it.
 //   A SHEET NUMBER            B SHEET NAME
-//   C DISCIPLINE              D DISCIPLINE SORT ORDER
-//   E…M SHEET.INDEX.P0 … P8   (one per Level 4 package, padded to 9 slots)
-//   N SHEET CATEGORY          O SHEET.INDEX.VOLUME
-//   P WORKING OR PRINTED      Q ISSUED NAME
-//   R SHEET ISSUED DATE
-const EXPORT_PKG_MIN_COLS      = 9;        // guarantees Sheet.Index.P0–P8 on a default project
-const EXPORT_DEFAULT_WORKING   = 'PRINTED';
+//   C DISCIPLINE NAME         D DISCIPLINE SORT ORDER
+//   E…  SHEET.INDEX.P0 …      (one per Level 4 package, in Level 4 order)
+//   …   SHEET CATEGORY        SHEET.INDEX.VOLUME
+//   …   WORKING OR PRINTED    ISSUED NAME
+//   …   SHEET ISSUED DATE
+// On a default 8-package project that is 17 columns, A–Q.
+const EXPORT_DEFAULT_WORKING   = 'Printed';
 const EXPORT_DEFAULT_TBD       = 'TBD';
 
 // Spreadsheet-style column letters for the config UI: 0→A … 25→Z, 26→AA.
@@ -3090,19 +3092,17 @@ function exportColLetter(i) {
   return s;
 }
 
-// One column slot per Level 4 package, padded with sequential Sheet.Index codes
-// to EXPORT_PKG_MIN_COLS. Slot ids are positional (pkg0, pkg1, …) so a saved
-// column order survives package renames and Sheet.Index.Code edits.
+// One column slot per Level 4 package — nothing more. Slot ids are positional
+// (pkg0, pkg1, …) so a saved column order survives package renames and
+// Sheet.Index.Code edits. Earlier builds padded this list out to a fixed minimum
+// of nine slots, which left a trailing package column with no package behind it:
+// it exported blank in every row and occupied a letter for nothing.
 function exportPkgSlots() {
-  const packages = S.project.packages;
-  const slots = packages.map((p, i) => ({ id: `pkg${i}`, label: p.pCode || `Sheet.Index.P${i}`, pkg: p }));
-  let maxP = packages.length - 1;
-  packages.forEach(p => { maxP = Math.max(maxP, pkgCodeIndex(p.pCode)); });
-  const padCount = Math.max(0, EXPORT_PKG_MIN_COLS - packages.length);
-  for (let i = 1; i <= padCount; i++) {
-    slots.push({ id: `pkg${packages.length + i - 1}`, label: `Sheet.Index.P${maxP + i}`, pkg: null });
-  }
-  return slots;
+  return S.project.packages.map((p, i) => ({
+    id: `pkg${i}`,
+    label: p.pCode || `Sheet.Index.P${i}`,
+    pkg: p
+  }));
 }
 
 // The full catalogue of exportable columns in DEFAULT order. `kind` drives
@@ -3112,12 +3112,15 @@ function exportColumnSpec() {
   return [
     { id: 'sheetNum',       label: 'SHEET NUMBER',          kind: 'text',  width: 14 },
     { id: 'sheetName',      label: 'SHEET NAME',            kind: 'name',  width: 42 },
-    { id: 'discipline',     label: 'DISCIPLINE',            kind: 'text',  width: 26 },
+    { id: 'discipline',     label: 'DISCIPLINE NAME',       kind: 'text',  width: 26 },
     { id: 'discSort',       label: 'DISCIPLINE SORT ORDER', kind: 'text',  width: 28 },
     ...exportPkgSlots().map(s => ({ id: s.id, label: up(s.label), kind: 'pkg', pkg: s.pkg, width: 10 })),
     { id: 'sheetCategory',  label: 'SHEET CATEGORY',        kind: 'text',  width: 24 },
     { id: 'volume',         label: 'SHEET.INDEX.VOLUME',    kind: 'text',  width: 20 },
-    { id: 'workingPrinted', label: 'WORKING OR PRINTED',    kind: 'text',  width: 20 },
+    // preserveCase: CSV and Print uppercase their values; this one is a fixed
+    // default whose casing is the point, so it is emitted verbatim in all five
+    // formats instead of being folded to PRINTED in two of them.
+    { id: 'workingPrinted', label: 'WORKING OR PRINTED',    kind: 'text',  width: 20, preserveCase: true },
     { id: 'issuedName',     label: 'ISSUED NAME',           kind: 'text',  width: 20 },
     { id: 'issuedDate',     label: 'SHEET ISSUED DATE',     kind: 'text',  width: 20 },
   ];
@@ -3268,9 +3271,8 @@ function buildExportModel() {
       issuedDate:     sheetIssuedField(r.sheetNum, 'issuedDate'),
     };
     // Package columns: the status symbol for this sheet in that package, blank
-    // when the sheet is absent. Padded slots have no package and stay blank.
+    // when the sheet is not in that package.
     pkgCols.forEach(c => {
-      if (!c.pkg) { values[c.id] = ''; return; }
       const sheetId = r.pkgMap[c.pkg.id];
       const sh = sheetId ? S.project.sheets.find(s => s.id === sheetId) : null;
       values[c.id] = sh ? statusSymbolFor(sh.statusId) : '';
@@ -3284,7 +3286,7 @@ function buildExportModel() {
 
   const countsFor = rs => {
     const out = {};
-    pkgCols.forEach(c => { out[c.id] = c.pkg ? rs.filter(r => hasStatusNum(r.pkgMap[c.pkg.id])).length : 0; });
+    pkgCols.forEach(c => { out[c.id] = rs.filter(r => hasStatusNum(r.pkgMap[c.pkg.id])).length; });
     return out;
   };
 
@@ -3365,6 +3367,8 @@ function exportCSV() {
   const { cols, groups, grand } = buildExportModel();
   if (!cols.length) { setAlert('status-bulk-alert', 'No export columns are enabled.', 'danger'); return; }
   const up  = v => String(v ?? '').toUpperCase();
+  // Values are uppercased as before, except columns flagged preserveCase.
+  const cellOf = (col, r) => (col.preserveCase ? r.values[col.id] : up(r.values[col.id]));
   const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const blank = cols.map(() => '');
 
@@ -3374,7 +3378,7 @@ function exportCSV() {
   groups.forEach(g => {
     push(blank);
     push(cols.map((c, i) => (i === 0 ? up(g.label) : '')));
-    g.rows.forEach(r => push(cols.map(c => up(r.values[c.id]))));
+    g.rows.forEach(r => push(cols.map(c => cellOf(c, r))));
     const n = g.rows.length;
     push(exportTotalCells(cols, up(`Subtotal · ${n} sheet${n !== 1 ? 's' : ''}`), g.counts).cells);
   });
@@ -3469,7 +3473,7 @@ function printSchedule() {
       html += '<tr>' + cols.map(c => {
         const v = r.values[c.id];
         if (c.kind === 'pkg') return `<td class="num">${v !== '' && v != null ? escHtmlRaw(String(v)) : '-'}</td>`;
-        return `<td>${escHtmlRaw(up(v))}</td>`;
+        return `<td>${escHtmlRaw(c.preserveCase ? String(v ?? '') : up(v))}</td>`;
       }).join('') + '</tr>';
     });
     const n = g.rows.length;
@@ -3684,17 +3688,21 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   4. Packages — 8 default packages (Sheet.Index.P0 … Sheet.Index.P7) with issue dates; Sheet.Index.Codes, names, and dates are all editable
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               review sheets per package via tabs; manually correct any fields in the inline table
-  6. Export — sort schedule by discipline, assign statuses, export to:
-              XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF
-              XLSX is a flat parameter table: Discipline Name, Discipline Sort
-              Order, Sheet Number, Sheet Name, then one column per package
-              headed by its Sheet.Index.Code (Sheet.Index.P0 …). Print/PDF keeps the
-              grouped subtotal layout.
+  6. Export — assign statuses, configure export columns, export to:
+              XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF.
+              Every format is generated from one column configuration, so column
+              visibility and left/right order apply identically to all five.
+              Default set (17 columns on an 8-package project, A–Q): Sheet Number,
+              Sheet Name, Discipline Name, Discipline Sort Order, one column per
+              package headed by its Sheet.Index.Code, Sheet Category,
+              Sheet.Index.Volume, Working or Printed, Issued Name, Sheet Issued
+              Date. XLSX and Revit are flat one-row-per-sheet tables; CSV and
+              Print/PDF keep the grouped discipline subtotal layout.
 
   REVIT EXPORT
-  The tab-delimited export produces: Sheet Number, Sheet Name, Discipline Name,
-  Package, Issue Date, Status, Project Number — standard fields for Revit schedule
-  import add-ins.
+  The tab-delimited export carries the same configured columns as every other
+  format, headed by the column labels, for mapping in Revit schedule import
+  add-ins (e.g. DiRoots SheetGen).
 
   NOTES
   - Project number uniqueness is enforced per browser localStorage scope
