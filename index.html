@@ -306,6 +306,15 @@ select.form-input{cursor:pointer}
   display:flex;align-items:center;gap:12px;margin-bottom:8px;
 }
 .pkg-inputs{flex:1;display:grid;grid-template-columns:minmax(110px,0.55fr) 1.25fr 1fr;gap:10px}
+/* Sheet.Index.Code is system-assigned. It stays an <input> to keep the row's
+   three fields on one baseline, but reads as derived rather than editable:
+   recessed fill, muted text, no caret or focus ring. Still selectable so the
+   code can be copied into a Revit parameter name. */
+.pkg-code-ro{
+  background:var(--surface2);color:var(--text2);
+  cursor:default;user-select:all;
+}
+.pkg-code-ro:focus{border-color:var(--border);outline:none}
 
 /* Sheet schedule preview */
 .schedule-header{
@@ -761,7 +770,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   <div class="view-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
     <div>
       <div class="view-title">Project Packages</div>
-      <div class="view-sub">Define submission packages with issue dates and upload drawing sets.</div>
+      <div class="view-sub">Define submission packages with issue dates and upload drawing sets. Sheet.Index.Codes are assigned automatically in creation order.</div>
     </div>
     <div id="pill-packages" class="active-proj-pill" title="Active project">
       <span class="active-proj-pill-dot"></span>
@@ -1776,7 +1785,7 @@ function renderPackages() {
       <div class="pkg-inputs">
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Sheet.Index.Code</div>
-          <input class="form-input mono" style="height:32px;font-size:13px" value="${escHtml(pkg.pCode || '')}" oninput="updatePkg('${pkg.id}','pCode',this.value)"/>
+          <input class="form-input mono pkg-code-ro" style="height:32px;font-size:13px" value="${escHtml(pkg.pCode || '')}" readonly tabindex="-1" title="Assigned automatically in creation order and not editable — this code is the package's identity in the Level 6 export columns and in Revit"/>
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:3px;font-family:var(--display);text-transform:uppercase;letter-spacing:0.3px">Package Name</div>
@@ -1797,7 +1806,13 @@ function renderPackages() {
   `).join('');
 }
 
+// Editable Level 4 fields. pCode is deliberately absent: it is assigned by
+// nextPCode()/ensurePkgCodes() in creation order and is the package's identity
+// in the Level 6 export columns, so it is not routed through the generic
+// updater even if a caller asks.
+const PKG_EDITABLE_FIELDS = ['name', 'abbr', 'due'];
 function updatePkg(id, field, val) {
+  if (!PKG_EDITABLE_FIELDS.includes(field)) return;
   const p = S.project.packages.find(x => x.id === id);
   if (p) { p[field] = val; markDirty('packages'); }
 }
@@ -2790,7 +2805,7 @@ function renderSchedule() {
   // ── Header ───────────────────────────────────────────────────────
   const pkgHeaderCells = sortedPkgs.map(p => {
     return `<div class="pkg-col-hdr">
-      <div class="pkg-col-hdr-code" title="Sheet.Index.Code — editable in Level 4 Packages">${escHtml(p.pCode || '')}</div>
+      <div class="pkg-col-hdr-code" title="Sheet.Index.Code — assigned automatically in Level 4 Packages">${escHtml(p.pCode || '')}</div>
       <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
       <div class="pkg-col-hdr-controls">
@@ -3743,7 +3758,9 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   1. Login  — create an account or use demo credentials
   2. Project — name project, select country, auto-generate project number (CC-YYMMDD-hhmm)
   3. Disciplines — review/edit the 34 default AEC disciplines; adjust prefixes to match your consultants
-  4. Packages — 8 default packages (Sheet.Index.P0 … Sheet.Index.P7) with issue dates; Sheet.Index.Codes, names, and dates are all editable
+  4. Packages — 8 default packages (Sheet.Index.P0 … Sheet.Index.P7) with issue dates; names and
+                dates are editable. Sheet.Index.Codes are assigned automatically in creation order
+                and are read-only: the code is the package's identity in the Level 6 export columns
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               review sheets per package via tabs; manually correct any fields in the inline table
   6. Export — assign statuses, configure export columns, export to:
