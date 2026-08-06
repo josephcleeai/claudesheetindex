@@ -359,6 +359,23 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:4px;flex-wrap:nowrap}
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* Per-package export opt-out pill, on the preview column header */
+.pkg-exp-btn{
+  font-size:10px;font-family:var(--mono);line-height:1.5;
+  padding:1px 5px;margin-top:4px;max-width:100%;
+  border:1px solid var(--border2);border-radius:3px;
+  background:var(--surface);color:var(--text2);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .12s;
+}
+.pkg-exp-btn:hover{border-color:var(--accent);color:var(--accent)}
+.pkg-exp-btn.pkg-exp-off{background:var(--amber-bg);border-color:var(--amber);color:var(--amber);font-weight:600}
+.pkg-exp-btn.pkg-exp-off:hover{border-color:var(--amber);color:var(--amber)}
+/* An excluded package's header reads as struck out, and its data cells dim, so
+   the whole column is legible as "not going into the export". */
+.pkg-col-hdr-out .pkg-col-hdr-code,
+.pkg-col-hdr-out .pkg-col-hdr-name,
+.pkg-col-hdr-out .pkg-col-hdr-due{opacity:0.45;text-decoration:line-through}
+.pkg-out{display:block;opacity:0.4}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
 /* Level 5 Review: sheet table column sizing.
    Fixed table layout + nowrap headers keep Sheet #, Sheet Name, Discipline
@@ -1320,24 +1337,19 @@ function sanitizeCodeName(el) {
   renderCodeNameHint();
   markDirty('project');
 }
-// Live character-count feedback, so a short code is caught while typing rather
-// than only at save time.
+// Live character-count feedback while typing. Shows NOTHING for an empty or
+// complete field — the rule is already stated in the label, so a permanent
+// descriptive line under the input is just noise. Only a partially typed code
+// gets a message, because that is the one mistake the input filter cannot catch.
 function renderCodeNameHint() {
   const hint = document.getElementById('proj-code-hint');
   const el   = document.getElementById('proj-code');
   if (!hint || !el) return;
   const n = normalizeCodeName(el.value).length;
-  if (n === CODE_NAME_LEN) {
-    hint.style.color = 'var(--text3)';
-    hint.textContent = 'Prefixes every Level 6 export filename.';
-  } else if (n === 0) {
-    hint.style.color = 'var(--text3)';
-    hint.textContent = `${CODE_NAME_LEN} characters required. Prefixes every Level 6 export filename.`;
-  } else {
-    const left = CODE_NAME_LEN - n;
-    hint.style.color = 'var(--amber)';
-    hint.textContent = `${left} more character${left !== 1 ? 's' : ''} needed — exactly ${CODE_NAME_LEN} required.`;
-  }
+  if (n === 0 || n === CODE_NAME_LEN) { hint.textContent = ''; return; }
+  const left = CODE_NAME_LEN - n;
+  hint.style.color = 'var(--amber)';
+  hint.textContent = `${left} more character${left !== 1 ? 's' : ''} needed — exactly ${CODE_NAME_LEN} required.`;
 }
 
 function refreshProjectNum() {
@@ -2882,10 +2894,14 @@ function renderSchedule() {
 
   // ── Header ───────────────────────────────────────────────────────
   const pkgHeaderCells = sortedPkgs.map(p => {
-    return `<div class="pkg-col-hdr">
+    const inExport = isPkgInExport(p.id);
+    return `<div class="pkg-col-hdr${inExport ? '' : ' pkg-col-hdr-out'}">
       <div class="pkg-col-hdr-code" title="Sheet.Index.Code — assigned automatically in Level 4 Packages">${escHtml(p.pCode || '')}</div>
       <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
+      <button class="pkg-exp-btn${inExport ? '' : ' pkg-exp-off'}" onclick="togglePkgExport('${p.id}')" title="${inExport
+        ? 'Included in every export — click to opt this package out of XLSX, CSV, Revit, JSON and Print'
+        : 'Opted out of every export — click to include it again'}">${inExport ? '&#9745;' : '&#9744;'} Export</button>
       <div class="pkg-col-hdr-controls">
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',true)"  title="Select all sheets in this package">All</button>
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',false)" title="Unselect all sheets in this package">None</button>
@@ -2992,18 +3008,22 @@ function renderSchedule() {
       volGroup.rows.forEach(row => {
         const isSel = S._schedSel.has(row.sheetNum);
 
-        // Status cells — follow sortedPkgs column order
+        // Status cells — follow sortedPkgs column order. A package opted out of
+        // the export still shows its data (this is a schedule preview, not an
+        // export preview) but is dimmed so the exclusion reads at a glance.
         const statusCells = sortedPkgs.map(p => {
+          const out     = !isPkgInExport(p.id);
+          const wrap    = html => (out ? `<span class="pkg-out">${html}</span>` : html);
           const sheetId = row.pkgMap[p.id];
           if (!sheetId) {
-            return `<span style="display:block;color:var(--text3);font-size:12px;text-align:center">-</span>`;
+            return wrap(`<span style="display:block;color:var(--text3);font-size:12px;text-align:center">-</span>`);
           }
           const sheet    = S.project.sheets.find(s => s.id === sheetId);
           const statusId = sheet ? (sheet.statusId || S.project.statuses[0]?.id || 1) : (S.project.statuses[0]?.id || 1);
           
           // For Cover Index sheets, add volume selector in first column after sheet name
           let sheetContent = `<select class="status-select" onchange="setSheetStatus('${sheetId}',this.value)">${statusOptsFn(statusId)}</select>`;
-          return sheetContent;
+          return wrap(sheetContent);
         }).join('');
 
         // For Cover Index, add per-sheet volume selector.
@@ -3309,18 +3329,6 @@ function ensureExportCols() {
   return cfg;
 }
 
-// SHEET CATEGORY is derived from the DISCIPLINE value by removing the prefix and
-// its hyphen: "A-Architecture" → "Architecture". Stripping by prefix LENGTH (not
-// at the first hyphen) keeps discipline names that themselves contain hyphens
-// intact, e.g. "IA-Interior-Architecture" → "Interior-Architecture".
-function sheetCategoryFrom(discValue, prefix) {
-  const v = String(discValue || '');
-  const p = String(prefix || '');
-  if (p && v.toUpperCase().startsWith(`${p.toUpperCase()}-`)) return v.slice(p.length + 1);
-  const i = v.indexOf('-');
-  return i >= 0 ? v.slice(i + 1) : v;
-}
-
 // ── Editable export fields: ISSUED NAME / SHEET ISSUED DATE ─────────
 // Both are properties of the sheet NUMBER, not of one package's record, because
 // exports carry one row per unique sheet number. Values are therefore written
@@ -3437,12 +3445,16 @@ function buildExportModel() {
   const rows = [...sheetMap.values()].map(r => {
     const disc     = S.project.disciplines.find(d => d.prefix === r.discipline);
     const discVal  = disc ? `${disc.prefix}-${disc.name}` : (r.discipline || '');
+    const discSort = disc ? `${disc.order}-${disc.name}` : '';
     const values = {
       sheetNum:       r.sheetNum,
       sheetName:      r.sheetName,
       discipline:     discVal,
-      discSort:       disc ? `${disc.order}-${disc.name}` : '',
-      sheetCategory:  sheetCategoryFrom(discVal, disc ? disc.prefix : r.discipline),
+      discSort:       discSort,
+      // SHEET CATEGORY carries the same value as DISCIPLINE SORT ORDER. The two
+      // columns are deliberately identical in content and differ only in header,
+      // so a consumer can map one string onto two Revit parameters.
+      sheetCategory:  discSort,
       volume:         scheduleRowVolume(r),
       workingPrinted: EXPORT_DEFAULT_WORKING,
       issuedName:     sheetIssuedField(r.sheetNum, 'issuedName'),
@@ -3707,6 +3719,22 @@ function renderExportCols() {
     </div>
     <div class="ecol-order" title="Column order used by XLSX, CSV, Revit, JSON and Print">${order || '<span style="color:var(--amber)">No columns enabled — exports are disabled.</span>'}</div>
     ${S._exportColsOpen ? `<div class="ecol-grid">${chips}</div>` : ''}`;
+}
+
+// ── Per-package export opt-out ────────────────────────────────────
+// The Export Columns panel can toggle any column, but a package's own column is
+// the one a user most often wants to drop — so the same switch is surfaced on
+// the package column header in the Level 6 preview, where the package is in
+// front of them. Both controls write the SAME config entry; there is no second
+// source of truth.
+function pkgExportColId(pkgId) { return `pkg:${pkgId}`; }
+function isPkgInExport(pkgId) {
+  const c = ensureExportCols().find(x => x.id === pkgExportColId(pkgId));
+  return c ? c.on !== false : true;
+}
+function togglePkgExport(pkgId) {
+  toggleExportCol(pkgExportColId(pkgId), !isPkgInExport(pkgId));
+  renderSchedule();   // repaint the header pill and dim/undim the column
 }
 
 function toggleExportColsOpen() {
