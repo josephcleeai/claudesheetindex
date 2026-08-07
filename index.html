@@ -384,8 +384,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
    Columns (fixed px except Sheet Name, which takes the remainder):
    checkbox 40 · Sheet # 120 · Sheet Name auto · Volume 170 ·
    Discipline 260 · Discipline Sort Order 320 · Delete 64.
-   The Volume cell's <select> carries min-width:0 inside its flex row so it can
-   shrink instead of overflowing its column. */
+   Volume, Discipline and Discipline Sort Order are all display-only text. */
 #file-list{overflow-x:auto}
 #file-list .data-table{table-layout:fixed;min-width:1060px}
 #file-list .data-table th{white-space:nowrap}
@@ -2340,7 +2339,6 @@ function renderFileList() {
   // label) followed by a blank spacer; a grand total row closes the table.
   // These rows are display-only — they carry no sheet ids, so selection,
   // delete, sorting, and export logic are unaffected.
-  // Volume dropdowns (section row and per-sheet) share volumeOptionsHtml().
 
   // ── Discipline value rendering (display only) ─────────────────────
   // Both discipline columns read the single sheet.discipline field, which stores
@@ -2351,6 +2349,16 @@ function renderFileList() {
   //   Discipline Sort Order → "order-Name"   (e.g. 301-Architecture)
   // A prefix that no longer matches any Level 3 discipline is shown raw and
   // flagged rather than silently rendered blank.
+  // Volume is DISPLAY ONLY in Level 5. It is assigned in Level 6 Export — per
+  // discipline from the volume selector on each discipline separator, or per
+  // sheet for Cover Drawing Index and "Not Apply" disciplines. Rendering it here
+  // keeps the review table informative without giving two levels write access to
+  // the same field.
+  const volValueHtml = vol =>
+    `<span class="disc-val" title="${escHtml(vol)} — assigned in Level 6 Export">${escHtml(vol)}</span>`;
+  const volPlaceholderHtml = label =>
+    `<span class="disc-val disc-val-none" title="Assign this section's volume in Level 6 Export">${escHtml(label || '— select —')}</span>`;
+
   const discByPrefix = new Map(S.project.disciplines.map(d => [String(d.prefix), d]));
   const discValueHtml = (prefix, fmt) => {
     const key = String(prefix || '');
@@ -2372,9 +2380,7 @@ function renderFileList() {
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
               <div class="disc-cell">
-                <select onchange="handleReviewSheetVolumeChange('${s.id}',this.value)" title="Volume — set from the section row above or the Level 3 discipline; override per sheet here.">
-                  ${volumeOptionsHtml(sheetEffectiveVolume(s), sheetEffectiveVolume(s) ? null : '— select —')}
-                </select>
+                ${volValueHtml(sheetEffectiveVolume(s))}
               </div>
             </td>
             <td>
@@ -2402,9 +2408,9 @@ function renderFileList() {
     bodyRows += `
           <tr class="rev-blank"><td colspan="7"></td></tr>`;
     // ── Section top row: discipline label + a Volume dropdown that applies to
-    // every sheet in this section. Shows the section's shared volume, a "mixed"
-    // placeholder when its sheets disagree, or a "select" placeholder when the
-    // discipline is set to "Not Apply" and nothing has been assigned yet.
+    // every sheet in this section. Display only: shows the section's shared
+    // volume, a "mixed" placeholder when its sheets disagree, or a "select"
+    // placeholder when nothing has been assigned yet. Assignment is in Level 6.
     const discObj   = S.project.disciplines.find(d => d.prefix === key);
     const discLabel = key
       ? (discObj ? `${discObj.order}-${discObj.name}` : key)
@@ -2416,7 +2422,7 @@ function renderFileList() {
       ? '— mixed —'
       : (sharedVol ? null : '— select —');
     const naBadge = isNotApply
-      ? `<span title="Level 3 volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets manually" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
+      ? `<span title="Volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets individually in Level 6 Export" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
       : '';
     bodyRows += `
           <tr class="rev-section">
@@ -2424,9 +2430,7 @@ function renderFileList() {
             <td colspan="2">${escHtml(discLabel)}${naBadge}</td>
             <td>
               <div class="disc-cell">
-                <select onchange="setSectionVolume('${escHtml(key)}',this.value)" title="Set the volume for every sheet in this section">
-                  ${volumeOptionsHtml(sharedVol, placeholder)}
-                </select>
+                ${sharedVol ? volValueHtml(sharedVol) : volPlaceholderHtml(placeholder)}
               </div>
             </td>
             <td></td>
@@ -2632,22 +2636,6 @@ function allVolumeNames() {
   return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
-// Shared <option> list for every volume dropdown. `selected` is the currently
-// chosen value ('' renders the blank placeholder as selected). `notApply` adds
-// "Not Apply" as the FIRST option — used only by the Level 3 discipline
-// dropdown, since it is not a valid per-sheet volume.
-function volumeOptionsHtml(selected, blankLabel, notApply) {
-  const opts = allVolumeNames().map(v =>
-    `<option value="${escHtml(v)}" ${selected === v ? 'selected' : ''}>${escHtml(v)}</option>`
-  ).join('');
-  const blank = blankLabel != null
-    ? `<option value="" ${!selected ? 'selected' : ''}>${escHtml(blankLabel)}</option>`
-    : '';
-  const na = notApply
-    ? `<option value="${escHtml(VOLUME_NOT_APPLY)}" ${selected === VOLUME_NOT_APPLY ? 'selected' : ''}>${escHtml(VOLUME_NOT_APPLY)}</option>`
-    : '';
-  return `${blank}${na}${opts}<option value="__ADD__">+ Add New Volume</option>`;
-}
 
 function getAvailableVolumes() {
   return allVolumeNames().map(v => ({ label: v, value: v }));
@@ -2678,13 +2666,6 @@ function updateDisciplineVolume(prefix, volumeNum) {
   }
 }
 
-function updateSheetVolume(sheetId, volumeNum) {
-  const sheet = S.project.sheets.find(s => s.id === sheetId);
-  if (sheet) {
-    sheet.volumeNum = volumeNum;
-    saveDB();
-  }
-}
 
 // Cover Drawing Index volume is a property of the sheet NUMBER, not of any one
 // package instance. Read from / write to every record sharing that number so
@@ -2710,15 +2691,16 @@ function scheduleRowVolume(row) {
   return rec?.volumeNum || 'Unassigned';
 }
 
-// ── Volume assignment — owned by Level 5 Review ──────────────────────
-// Volume is set in Level 5 (per-sheet dropdown, or the section top row for a
-// whole discipline section). Level 3 no longer exposes a Volume field. The
-// per-discipline value below is only a seed for newly added sheets: any stored
-// discipline volume — including a legacy "Not Apply" — still resolves here, but
-// nothing in the UI writes it, so a Level 3 save never disturbs Level 5 values.
+// ── Volume assignment — owned by Level 6 Export ──────────────────────
+// Volume is set in Level 6: the selector on each discipline separator assigns a
+// whole discipline, and Cover Drawing Index / "Not Apply" disciplines get a
+// per-sheet selector instead. Level 3 exposes no Volume field, and Level 5
+// displays volume without writing it, so there is exactly one writer.
+// The per-discipline value below is a seed for newly added sheets; a stored
+// legacy "Not Apply" still resolves here.
 
 // Seed volume for a discipline prefix, or '' when it contributes none (legacy
-// "Not Apply", or an unknown discipline). Empty means "assign in Level 5".
+// "Not Apply", or an unknown discipline). Empty means "assign in Level 6".
 function disciplineVolumeFor(prefix) {
   if (!prefix) return '';
   const d = S.project?.disciplines.find(x => x.prefix === prefix);
@@ -2750,40 +2732,7 @@ function ensureSheetVolumes() {
   if (changed) saveDB();
 }
 
-// Level 5 per-sheet Volume dropdown. For Cover Drawing Index (X0) the volume is
-// a property of the sheet NUMBER, so write it across every package instance to
-// stay consistent with the Level 6 cover-index grouping; other disciplines are
-// per-record.
-function handleReviewSheetVolumeChange(sheetId, value) {
-  const s = S.project.sheets.find(x => x.id === sheetId);
-  if (!s) return;
-  const vol = value === '__ADD__' ? addNewVolume() : value;
-  if (!vol) return;
-  if (s.discipline === 'X0') updateCoverSheetVolume(s.sheetNum, vol);
-  else updateSheetVolume(sheetId, vol);
-  markDirty('upload');
-  renderFileList();
-}
 
-// Level 5 section top row: apply one volume to every sheet in that discipline
-// section within the package currently shown. Cover Drawing Index (X0) volumes
-// are written across all package instances of each sheet number to stay
-// consistent with the Level 6 cover-index grouping.
-function setSectionVolume(prefix, value) {
-  if (value === '') return; // the "mixed" placeholder is not a selectable target
-  const vol = value === '__ADD__' ? addNewVolume() : value;
-  if (!vol) return;
-  const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
-  const group = S.project.sheets.filter(s => s.packageId === pkgId && (s.discipline || '') === prefix);
-  if (!group.length) return;
-  group.forEach(s => {
-    if (s.discipline === 'X0') updateCoverSheetVolume(s.sheetNum, vol);
-    else s.volumeNum = vol;
-  });
-  saveDB();
-  markDirty('upload');
-  renderFileList();
-}
 
 // ================================================================
 // STATUS / PREVIEW / EXPORT — LEVEL 6
@@ -3110,15 +3059,27 @@ function setSheetStatus(id, val) {
   saveDB();
 }
 
+// Level 6 discipline volume selector — the single control for volume now that
+// Level 5's dropdowns are gone. It must write THROUGH to the sheet records, not
+// just to the discipline seed: exports read each sheet's own volumeNum (see
+// scheduleRowVolume), and ensureSheetVolumes() pins one on every sheet, so
+// updating only the discipline would change the preview heading while leaving
+// SHEET.INDEX.VOLUME in every export untouched.
+function setDisciplineVolumeEverywhere(prefix, vol) {
+  updateDisciplineVolume(prefix, vol);   // seed for sheets added later
+  let changed = false;
+  S.project.sheets.forEach(s => {
+    if (s.discipline === prefix && s.volumeNum !== vol) { s.volumeNum = vol; changed = true; }
+  });
+  if (changed) saveDB();
+}
+
 function handleVolumeSelectorChange(discPrefix, value) {
-  if (value === '__ADD__') {
-    const newVol = addNewVolume();
-    updateDisciplineVolume(discPrefix, newVol);
-    renderSchedule();
-  } else if (value) {
-    updateDisciplineVolume(discPrefix, value);
-    renderSchedule();
-  }
+  const vol = value === '__ADD__' ? addNewVolume() : value;
+  if (!vol) return;
+  setDisciplineVolumeEverywhere(discPrefix, vol);
+  renderSchedule();
+  renderPkgVolumeSummary();
 }
 
 function handleSheetVolumeChange(sheetNum, value) {
@@ -3900,8 +3861,9 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
                 dates are editable. Sheet.Index.Codes are assigned automatically in creation order
                 and are read-only: the code is the package's identity in the Level 6 export columns
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
-              review sheets per package via tabs; manually correct any fields in the inline table
-  6. Export — assign statuses, configure export columns, export to:
+              review sheets per package via tabs; Sheet # and Sheet Name are editable inline.
+              Volume, Discipline and Discipline Sort Order are display-only here
+  6. Export — assign statuses, assign volumes, configure export columns, export to:
               XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF.
               Every format is generated from one column configuration, so column
               visibility and left/right order apply identically to all five.
@@ -3910,7 +3872,9 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
               package headed by its Sheet.Index.Code, Sheet Category,
               Sheet.Index.Volume, Working or Printed, Issued Name, Sheet Issued
               Date. XLSX and Revit are flat one-row-per-sheet tables; CSV and
-              Print/PDF keep the grouped discipline subtotal layout.
+              Print/PDF keep the grouped discipline subtotal layout. Volume is assigned
+              here: the selector on each discipline separator sets a whole discipline,
+              and Cover Drawing Index / "Not Apply" disciplines assign per sheet.
 
   REVIT EXPORT
   The tab-delimited export carries the same configured columns as every other
