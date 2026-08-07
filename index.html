@@ -359,17 +359,33 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:4px;flex-wrap:nowrap}
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-/* Per-package export opt-out pill, on the preview column header */
+/* Export-range cursor pill, on the preview column header. Green = inside the
+   exported range, amber = withheld. */
 .pkg-exp-btn{
   font-size:10px;font-family:var(--mono);line-height:1.5;
   padding:1px 5px;margin-top:4px;max-width:100%;
   border:1px solid var(--border2);border-radius:3px;
-  background:var(--surface);color:var(--text2);cursor:pointer;
+  background:var(--green-bg);border-color:#C0DD97;color:var(--green);cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .12s;
 }
 .pkg-exp-btn:hover{border-color:var(--accent);color:var(--accent)}
 .pkg-exp-btn.pkg-exp-off{background:var(--amber-bg);border-color:var(--amber);color:var(--amber);font-weight:600}
 .pkg-exp-btn.pkg-exp-off:hover{border-color:var(--amber);color:var(--amber)}
+/* Export-range banner above the schedule grid */
+.exp-range-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 12px;margin-bottom:10px;
+  background:var(--surface);border:1px solid var(--border);
+  border-left:3px solid var(--green);border-radius:var(--radius);
+}
+.exp-range-label{
+  font-size:10px;font-family:var(--display);font-weight:600;
+  text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);
+}
+.exp-range-list{font-size:11.5px;font-family:var(--mono);color:var(--text)}
+.exp-range-all{font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 6px}
+.exp-range-out{font-size:10px;font-family:var(--mono);background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 6px}
+.exp-range-hint{font-size:10.5px;color:var(--text3);margin-left:auto}
 /* An excluded package's header reads as struck out, and its data cells dim, so
    the whole column is legible as "not going into the export". */
 .pkg-col-hdr-out .pkg-col-hdr-code,
@@ -1975,7 +1991,7 @@ function volumeCountsForPackage(pkgId) {
   S.project.sheets
     .filter(s => s.packageId === pkgId)
     .forEach(s => {
-      const v = sheetEffectiveVolume(s) || 'Unassigned';
+      const v = sheetEffectiveVolume(s, pkgId) || 'Unassigned';
       counts.set(v, (counts.get(v) || 0) + 1);
     });
   return [...counts.keys()]
@@ -2349,15 +2365,12 @@ function renderFileList() {
   //   Discipline Sort Order → "order-Name"   (e.g. 301-Architecture)
   // A prefix that no longer matches any Level 3 discipline is shown raw and
   // flagged rather than silently rendered blank.
-  // Volume is DISPLAY ONLY in Level 5. It is assigned in Level 6 Export — per
-  // discipline from the volume selector on each discipline separator, or per
-  // sheet for Cover Drawing Index and "Not Apply" disciplines. Rendering it here
-  // keeps the review table informative without giving two levels write access to
-  // the same field.
-  const volValueHtml = vol =>
-    `<span class="disc-val" title="${escHtml(vol)} — assigned in Level 6 Export">${escHtml(vol)}</span>`;
-  const volPlaceholderHtml = label =>
-    `<span class="disc-val disc-val-none" title="Assign this section's volume in Level 6 Export">${escHtml(label || '— select —')}</span>`;
+  // Volume is WRITTEN here in Level 5 and is scoped to the open package tab, so
+  // each package can carry its own combination of volumes for the same sheets.
+  // Two controls write it — the section dropdown on each Discipline Sort Order
+  // header (whole section, this package) and the per-sheet dropdown (one sheet,
+  // this package, overriding the section) — and both funnel into
+  // setSheetVolume/applyVolumeToDisciplineSection. Level 6 only reads it.
 
   const discByPrefix = new Map(S.project.disciplines.map(d => [String(d.prefix), d]));
   const discValueHtml = (prefix, fmt) => {
@@ -2373,14 +2386,25 @@ function renderFileList() {
     return `<span class="disc-val" title="${escHtml(txt)}">${escHtml(txt)}</span>`;
   };
 
-  const sheetRowHtml = s => `
+  const sheetRowHtml = s => {
+    const currentVol = sheetEffectiveVolume(s, pkgId);
+    const pkgVols = getPackageVolumes(pkgId);
+    const volOpts = pkgVols.map(v => `<option value="${escHtml(v)}" ${v === currentVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+    const volDropdown = `
+      <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="handleSheetVolumeDropdown('${s.id}','${pkgId}',this.value)" title="Assign this sheet to a volume — overrides the section assignment">
+        <option value="" ${!currentVol ? 'selected' : ''}>— none —</option>
+        ${volOpts}
+        <option value="__ADD__">+ Add New Volume</option>
+        ${currentVol ? `<option value="__REMOVE__">✕ Remove</option>` : ''}
+      </select>`;
+    return `
           <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
             <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
             <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
             <td>
-              <div class="disc-cell">
-                ${volValueHtml(sheetEffectiveVolume(s))}
+              <div class="disc-cell" style="padding:0">
+                ${volDropdown}
               </div>
             </td>
             <td>
@@ -2396,6 +2420,7 @@ function renderFileList() {
             </td>
             <td><button class="btn btn-sm btn-danger" onclick="deleteSheet('${s.id}')">×</button></td>
           </tr>`;
+  };
 
   let bodyRows = '';
   let gi = 0;
@@ -2408,29 +2433,37 @@ function renderFileList() {
     bodyRows += `
           <tr class="rev-blank"><td colspan="7"></td></tr>`;
     // ── Section top row: discipline label + a Volume dropdown that applies to
-    // every sheet in this section. Display only: shows the section's shared
-    // volume, a "mixed" placeholder when its sheets disagree, or a "select"
-    // placeholder when nothing has been assigned yet. Assignment is in Level 6.
+    // every sheet in this section. Section-level dropdown sets volume for all
+    // sheets in this discipline within the current package.
     const discObj   = S.project.disciplines.find(d => d.prefix === key);
     const discLabel = key
       ? (discObj ? `${discObj.order}-${discObj.name}` : key)
       : '— unassigned —';
     const isNotApply = !!discObj && discObj.volumeNum === VOLUME_NOT_APPLY;
-    const groupVols  = [...new Set(group.map(s => sheetEffectiveVolume(s)))];
+    const groupVols  = [...new Set(group.map(s => sheetEffectiveVolume(s, pkgId)))];
     const sharedVol  = groupVols.length === 1 ? groupVols[0] : '';
-    const placeholder = groupVols.length > 1
-      ? '— mixed —'
-      : (sharedVol ? null : '— select —');
+    
+    // Build section-level volume dropdown
+    const pkgVols = getPackageVolumes(pkgId);
+    const sectionVolOpts = pkgVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+    const sectionVolDropdown = `
+      <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="handleSectionVolumeChange('${key}','${pkgId}',this.value)" title="Apply this volume to every sheet in this section, for this package">
+        <option value="" ${!sharedVol || groupVols.length > 1 ? 'selected' : ''}>— ${groupVols.length > 1 ? 'mixed' : 'select'} —</option>
+        ${sectionVolOpts}
+        <option value="__ADD__">+ Add New Volume</option>
+        ${sharedVol && groupVols.length === 1 ? `<option value="__REMOVE__">✕ Remove</option>` : ''}
+      </select>`;
+    
     const naBadge = isNotApply
-      ? `<span title="Volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets individually in Level 6 Export" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
+      ? `<span title="Volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets individually" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
       : '';
     bodyRows += `
           <tr class="rev-section">
             <td></td>
             <td colspan="2">${escHtml(discLabel)}${naBadge}</td>
             <td>
-              <div class="disc-cell">
-                ${sharedVol ? volValueHtml(sharedVol) : volPlaceholderHtml(placeholder)}
+              <div class="disc-cell" style="padding:0">
+                ${sectionVolDropdown}
               </div>
             </td>
             <td></td>
@@ -2597,6 +2630,33 @@ function updateSheet(id, field, val) {
   }
 }
 
+// Sheet-level Volume dropdown. Handles the two sentinel options as well as a
+// plain selection, so "+ Add New Volume" can never be stored as a volume name.
+// An explicit '' (— none — / Remove) is persisted as an explicit unassignment,
+// not a deletion, so it survives the ensureSheetVolumes() backfill.
+function handleSheetVolumeDropdown(sheetId, pkgId, value) {
+  let vol = value;
+  if (value === '__ADD__') vol = addNewVolume();
+  else if (value === '__REMOVE__') vol = '';
+  setSheetVolume(sheetId, pkgId, vol);
+  renderFileList();
+}
+
+// Section-level Volume dropdown on a Discipline Sort Order header. Writes the
+// chosen volume to EVERY sheet of that discipline in the current package only.
+// The blank option is the "— select —/— mixed —" placeholder, so it is a no-op:
+// clearing a whole section is done with the explicit Remove option.
+function handleSectionVolumeChange(discPrefix, pkgId, value) {
+  if (value === '__ADD__') {
+    applyVolumeToDisciplineSection(pkgId, discPrefix, addNewVolume());
+  } else if (value === '__REMOVE__') {
+    applyVolumeToDisciplineSection(pkgId, discPrefix, '');
+  } else if (value) {
+    applyVolumeToDisciplineSection(pkgId, discPrefix, value);
+  }
+  renderFileList();
+}
+
 function deleteSheet(id) {
   showModal('Remove Sheet', 'Remove this sheet from the index?', [
     {label:'Remove', primary:true, action:()=>{ S.project.sheets = S.project.sheets.filter(s => s.id !== id); renderFileList(); markDirty('upload'); closeModal(); }},
@@ -2629,17 +2689,18 @@ function allVolumeNames() {
   if (S.project) {
     getProjectVolumes().forEach(v => { if (v) set.add(v); });
     (S.project.disciplines || []).forEach(d => { if (d.volumeNum) set.add(d.volumeNum); });
-    (S.project.sheets || []).forEach(s => { if (s.volumeNum) set.add(s.volumeNum); });
+    (S.project.sheets || []).forEach(s => {
+      if (s.volumeNum) set.add(s.volumeNum);
+      // Package-scoped assignments count too, or addNewVolume() would keep
+      // handing back a number that is already in use in some package.
+      if (s.volumes) Object.values(s.volumes).forEach(v => { if (v) set.add(v); });
+    });
   }
   // "Not Apply" is a Level 3 discipline setting, never a real volume.
   set.delete(VOLUME_NOT_APPLY);
   return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
-
-function getAvailableVolumes() {
-  return allVolumeNames().map(v => ({ label: v, value: v }));
-}
 
 function addNewVolume() {
   const vols = getProjectVolumes();
@@ -2658,49 +2719,46 @@ function addNewVolume() {
   return newVol;
 }
 
-function updateDisciplineVolume(prefix, volumeNum) {
-  const disc = S.project.disciplines.find(d => d.prefix === prefix);
-  if (disc) {
-    disc.volumeNum = volumeNum;
-    saveDB();
-  }
-}
 
+// NOTE: Cover Drawing Index (X0) no longer needs its own volume accessors.
+// It used to be the one discipline assigned per sheet rather than per discipline,
+// keyed by sheet NUMBER across all packages. Now that EVERY sheet carries a
+// per-package volume set in Level 5, X0 goes through the same path as everything
+// else and coverSheetVolume / updateCoverSheetVolume have been removed.
 
-// Cover Drawing Index volume is a property of the sheet NUMBER, not of any one
-// package instance. Read from / write to every record sharing that number so
-// the assignment stays consistent across all package columns.
-function coverSheetVolume(sheetNum) {
-  const rec = S.project.sheets.find(s => s.sheetNum === sheetNum && s.discipline === 'X0' && s.volumeNum);
-  return rec?.volumeNum || 'Volume-1';
-}
-
-function updateCoverSheetVolume(sheetNum, volumeNum) {
-  let changed = false;
-  S.project.sheets.forEach(s => {
-    if (s.sheetNum === sheetNum && s.discipline === 'X0') { s.volumeNum = volumeNum; changed = true; }
-  });
-  if (changed) saveDB();
-}
-
-// Volume for a deduplicated Level 6 schedule row, read from whichever sheet
-// record carries one. Used when a discipline's volume is "Not Apply" and its
-// sheets are therefore assigned individually.
+// SHEET.INDEX.VOLUME for a deduplicated export/schedule row.
+// Volume is now per package, but exports emit one row per sheet NUMBER, so a
+// single value has to be chosen. This follows the project's established
+// "latest package wins" rule — the same rule already used for Sheet Name — and
+// only considers packages inside the current export range, so narrowing the
+// range to P2 reports the volume P2 assigned rather than one from a withheld
+// later package. Sheets with no assignment anywhere read as "Unassigned".
 function scheduleRowVolume(row) {
-  const rec = S.project.sheets.find(s => s.sheetNum === row.sheetNum && s.volumeNum);
-  return rec?.volumeNum || 'Unassigned';
+  const maxIdx = getPkgExportMaxIndex();
+  const pkgs   = (S.project.packages || []).slice(0, maxIdx + 1);
+  let winner = '';
+  pkgs.forEach(p => {
+    const sheetId = row.pkgMap ? row.pkgMap[p.id] : null;
+    if (!sheetId) return;
+    const rec = S.project.sheets.find(s => s.id === sheetId);
+    if (!rec) return;
+    const vol = sheetEffectiveVolume(rec, p.id);
+    if (vol) winner = vol;   // later package overwrites earlier
+  });
+  return winner || 'Unassigned';
 }
 
-// ── Volume assignment — owned by Level 6 Export ──────────────────────
-// Volume is set in Level 6: the selector on each discipline separator assigns a
-// whole discipline, and Cover Drawing Index / "Not Apply" disciplines get a
-// per-sheet selector instead. Level 3 exposes no Volume field, and Level 5
-// displays volume without writing it, so there is exactly one writer.
-// The per-discipline value below is a seed for newly added sheets; a stored
-// legacy "Not Apply" still resolves here.
+// ── Volume assignment — owned by Level 5 Review ──────────────────────
+// Volume is written ONLY in Level 5, and always scoped to one package: the
+// section dropdown on each Discipline Sort Order header writes a whole section
+// for the open package, and the per-sheet dropdown overrides a single sheet.
+// Level 3 exposes no Volume field and Level 6 only reads the value, so there is
+// exactly one writer. The Level 3 per-discipline value below survives purely as
+// a SEED for sheets that have no stored assignment yet; a stored legacy
+// "Not Apply" still resolves here.
 
 // Seed volume for a discipline prefix, or '' when it contributes none (legacy
-// "Not Apply", or an unknown discipline). Empty means "assign in Level 6".
+// "Not Apply", or an unknown discipline). Empty means "assign it in Level 5".
 function disciplineVolumeFor(prefix) {
   if (!prefix) return '';
   const d = S.project?.disciplines.find(x => x.prefix === prefix);
@@ -2709,27 +2767,87 @@ function disciplineVolumeFor(prefix) {
   return d.volumeNum || 'Volume-1';
 }
 
-// Effective volume shown for a sheet: its own pinned value, else its discipline
-// default. Returns '' for a sheet with no volume under a "Not Apply" discipline,
-// which the Level 5 dropdown renders as an unselected placeholder rather than
-// implying an assignment that was never made.
-function sheetEffectiveVolume(s) {
-  return s.volumeNum || disciplineVolumeFor(s.discipline) || '';
+// Effective volume for a sheet WITHIN one package.
+// Volume is owned per package: s.volumes[pkgId]. A stored key is authoritative
+// even when its value is '' — that is an explicit "unassigned", which is what
+// makes the Remove option stick instead of falling straight back to the
+// discipline default on the next render. Only an ABSENT key falls back.
+function sheetEffectiveVolume(s, pkgId) {
+  const key = pkgId || s.packageId;
+  if (key && s.volumes && Object.prototype.hasOwnProperty.call(s.volumes, key)) {
+    return s.volumes[key] || '';
+  }
+  return disciplineVolumeFor(s.discipline) || '';
 }
 
-// Migration/safety: give every sheet a concrete volumeNum matching its
-// discipline's Level 3 volume when it doesn't already carry one. Sheets under a
-// "Not Apply" discipline are deliberately left unset for manual assignment.
+// Migration/safety: seed each sheet's PACKAGE-SCOPED volume from its
+// discipline's Level 3 volume, but only when that package has no stored value
+// at all. An already-stored value — including an explicit '' from Remove — is
+// left exactly as the user left it. Legacy s.volumeNum is carried in as the seed
+// when present so projects saved before package scoping keep their assignments.
 function ensureSheetVolumes() {
   if (!S.project) return;
   let changed = false;
   S.project.sheets.forEach(s => {
-    if (!s.volumeNum) {
-      const def = disciplineVolumeFor(s.discipline);
-      if (def) { s.volumeNum = def; changed = true; }
+    if (!s.volumes) { s.volumes = {}; changed = true; }
+    const key = s.packageId;
+    if (!key) return;
+    if (!Object.prototype.hasOwnProperty.call(s.volumes, key)) {
+      s.volumes[key] = s.volumeNum || disciplineVolumeFor(s.discipline) || '';
+      changed = true;
     }
   });
   if (changed) saveDB();
+}
+
+// ── Package-scoped volume functions (Level 5 & 6) ───────────────────
+// Get all volume names used in a specific package across all sheets
+function getPackageVolumes(pkgId) {
+  if (!pkgId || !S.project) return [];
+  const set = new Set(DEFAULT_VOLUME_OPTIONS);
+  S.project.sheets.forEach(s => {
+    if (s.packageId === pkgId && s.volumes && s.volumes[pkgId]) {
+      set.add(s.volumes[pkgId]);
+    }
+  });
+  // Also add discipline defaults so user can select them
+  S.project.disciplines?.forEach(d => {
+    if (d.volumeNum && d.volumeNum !== VOLUME_NOT_APPLY) {
+      set.add(d.volumeNum);
+    }
+  });
+  set.delete(VOLUME_NOT_APPLY);
+  return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+// Set one sheet's volume for one package. '' is stored, not deleted — see
+// sheetEffectiveVolume(): a stored '' is an explicit unassignment that survives
+// the backfill, whereas deleting the key would let the discipline default
+// reappear on the next render and make Remove look like it did nothing.
+function setSheetVolume(sheetId, pkgId, volumeNum) {
+  if (!pkgId) return;
+  const s = S.project.sheets.find(x => x.id === sheetId);
+  if (!s) return;
+  if (!s.volumes) s.volumes = {};
+  s.volumes[pkgId] = volumeNum || '';
+  saveDB();
+}
+
+// Apply a volume to every sheet of one discipline WITHIN one package. Sheets of
+// the same discipline in other packages are untouched, which is what keeps
+// volume combinations scoped per package.
+function applyVolumeToDisciplineSection(pkgId, discPrefix, volumeNum) {
+  if (!pkgId) return 0;
+  let n = 0;
+  S.project.sheets.forEach(s => {
+    if (s.packageId === pkgId && (s.discipline || '') === (discPrefix || '')) {
+      if (!s.volumes) s.volumes = {};
+      s.volumes[pkgId] = volumeNum || '';
+      n++;
+    }
+  });
+  if (n) saveDB();
+  return n;
 }
 
 
@@ -2842,15 +2960,18 @@ function renderSchedule() {
   ).join('');
 
   // ── Header ───────────────────────────────────────────────────────
-  const pkgHeaderCells = sortedPkgs.map(p => {
-    const inExport = isPkgInExport(p.id);
-    return `<div class="pkg-col-hdr${inExport ? '' : ' pkg-col-hdr-out'}">
+  // Package export range selection: clicking a package button sets it as the max
+  // to include in export. All packages from P0 up to the selected package are included.
+  const maxIdx = getPkgExportMaxIndex();
+  const pkgHeaderCells = sortedPkgs.map((p, idx) => {
+    const inRange = maxIdx >= 0 && idx <= maxIdx;
+    return `<div class="pkg-col-hdr${inRange ? '' : ' pkg-col-hdr-out'}">
       <div class="pkg-col-hdr-code" title="Sheet.Index.Code — assigned automatically in Level 4 Packages">${escHtml(p.pCode || '')}</div>
       <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
-      <button class="pkg-exp-btn${inExport ? '' : ' pkg-exp-off'}" onclick="togglePkgExport('${p.id}')" title="${inExport
-        ? 'Included in every export — click to opt this package out of XLSX, CSV, Revit, JSON and Print'
-        : 'Opted out of every export — click to include it again'}">${inExport ? '&#9745;' : '&#9744;'} Export</button>
+      <button class="pkg-exp-btn${inRange ? '' : ' pkg-exp-off'}" onclick="selectPkgExportRange(${idx})" title="${inRange
+        ? 'Included in export up to this package — click to export through here'
+        : 'Excluded from export — click to include this and all prior packages'}">${inRange ? '✓' : '○'} To Here</button>
       <div class="pkg-col-hdr-controls">
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',true)"  title="Select all sheets in this package">All</button>
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',false)" title="Unselect all sheets in this package">None</button>
@@ -2864,7 +2985,22 @@ function renderSchedule() {
 
   const gridStyle = `grid-template-columns:${colTemplate};column-gap:2%;align-items:start;padding-top:10px;padding-bottom:10px`;
 
-  let html = `<div class="schedule-header" style="${gridStyle}">
+  // Export-range banner: states in words what the "To Here" cursor selected, so
+  // the included set is legible without reading the dimming across the columns.
+  const inPkgs   = sortedPkgs.slice(0, maxIdx + 1);
+  const outCount = sortedPkgs.length - inPkgs.length;
+  let html = `<div class="exp-range-bar">
+    <span class="exp-range-label">Export range</span>
+    <span class="exp-range-list">${inPkgs.length
+      ? escHtml(inPkgs.map(p => p.pCode || p.name).join('  ·  '))
+      : '<em>no packages</em>'}</span>
+    ${outCount > 0
+      ? `<span class="exp-range-out">${outCount} package${outCount !== 1 ? 's' : ''} withheld</span>`
+      : `<span class="exp-range-all">all packages</span>`}
+    <span class="exp-range-hint">Use “To Here” on a package column to change the final package exported</span>
+  </div>`;
+
+  html += `<div class="schedule-header" style="${gridStyle}">
     <span>Sheet #</span><span>Sheet Name</span>${pkgHeaderCells}
   </div>`;
 
@@ -2901,67 +3037,49 @@ function renderSchedule() {
   groups.forEach(group => {
     html += `<div class="sched-blank-row"></div>`;
     
-    // Find the discipline object and its current volume assignment
-    const disc = S.project.disciplines.find(d => d.prefix === group.prefix);
-    const discIsNotApply = !!disc && disc.volumeNum === VOLUME_NOT_APPLY;
-    const discVolumeNum = discIsNotApply ? '' : (disc?.volumeNum || 'Volume-1');
-    const isCoverIndex = group.prefix === 'X0';
-    // A "Not Apply" discipline has no single volume — its sheets are assigned
-    // individually, so group them per sheet just like the Cover Index.
-    const perSheetVolumes = isCoverIndex || discIsNotApply;
-    
-    // Build volume options dropdown
-    const availVols = getAvailableVolumes();
-    const volOptions = availVols.map(v => `<option value="${v.value}" ${v.value === discVolumeNum ? 'selected' : ''}>${v.label}</option>`).join('');
-    const volOptionsWithAdd = `${volOptions}<option value="__ADD__">+ Add New Volume</option>`;
-    
+    // Discipline separator — read only. Volume is assigned in Level 5 Review now,
+    // so there is no selector here and exactly one writer for the field.
     html += `<div class="disc-separator" style="display:flex;align-items:center;justify-content:space-between">
       <span>${escHtml(group.label)}</span>
-      <select class="form-input" style="width:150px;padding:4px 8px;font-size:12px" onchange="handleVolumeSelectorChange('${group.prefix}',this.value)">
-        ${perSheetVolumes ? '<option value="">Per-sheet volume →</option>' : volOptionsWithAdd}
-      </select>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--text3);text-transform:none;letter-spacing:0">volume assigned in Level 5</span>
     </div>`;
 
-    // Cover Index and "Not Apply" disciplines group by per-sheet volume;
-    // everything else uses the single discipline volume.
-    let volumeGroups = [];
-    if (perSheetVolumes) {
-      // Group sheets by their individual (per-sheet-number) volume assignment.
-      const volMap = new Map();
-      group.rows.forEach(row => {
-        const vol = isCoverIndex ? coverSheetVolume(row.sheetNum) : scheduleRowVolume(row);
-        if (!volMap.has(vol)) volMap.set(vol, []);
-        volMap.get(vol).push(row);
-      });
-      // Sort volume groups
-      const sortedVols = [...volMap.keys()].sort((a, b) => {
-        const aNum = parseInt(a.match(/\d+$/)?.[0]) || 0;
-        const bNum = parseInt(b.match(/\d+$/)?.[0]) || 0;
-        return aNum - bNum;
-      });
-      volumeGroups = sortedVols.map(vol => ({ vol, rows: volMap.get(vol) }));
-    } else {
-      // All sheets in this discipline go to the same volume
-      volumeGroups = [{ vol: discVolumeNum, rows: group.rows }];
-    }
+    // Every discipline groups by its resolved export volume — no special case for
+    // Cover Drawing Index or legacy "Not Apply", because volume is now per sheet
+    // per package for all of them and scheduleRowVolume() resolves them all the
+    // same way. Unassigned sorts last rather than being folded into a real volume.
+    const volMap = new Map();
+    group.rows.forEach(row => {
+      const vol = scheduleRowVolume(row);
+      if (!volMap.has(vol)) volMap.set(vol, []);
+      volMap.get(vol).push(row);
+    });
+    const sortedVols = [...volMap.keys()].sort((a, b) => {
+      if (a === 'Unassigned') return 1;
+      if (b === 'Unassigned') return -1;
+      return a.localeCompare(b, 'en', { numeric: true });
+    });
+    const volumeGroups = sortedVols.map(vol => ({ vol, rows: volMap.get(vol) }));
+    const showVolLabels = volumeGroups.length > 1;
 
     // Render volume groups with per-volume subtotals
     volumeGroups.forEach(volGroup => {
       html += `<div class="sched-blank-row"></div>`;
       
-      if (isCoverIndex && volumeGroups.length > 1) {
-        // Show volume label for Cover Index when there are multiple volumes
+      if (showVolLabels) {
+        // Any discipline can now span several volumes, so label each run whenever
+        // there is more than one to tell apart.
         html += `<div style="padding:6px 0;font-size:11px;color:var(--text2);font-style:italic">${escHtml(volGroup.vol)}</div>`;
       }
 
       volGroup.rows.forEach(row => {
         const isSel = S._schedSel.has(row.sheetNum);
 
-        // Status cells — follow sortedPkgs column order. A package opted out of
-        // the export still shows its data (this is a schedule preview, not an
+        // Status cells — follow sortedPkgs column order. A package outside the
+        // export range still shows its data (this is a schedule preview, not an
         // export preview) but is dimmed so the exclusion reads at a glance.
-        const statusCells = sortedPkgs.map(p => {
-          const out     = !isPkgInExport(p.id);
+        const statusCells = sortedPkgs.map((p, idx) => {
+          const out     = !isPkgInExportRange(idx);
           const wrap    = html => (out ? `<span class="pkg-out">${html}</span>` : html);
           const sheetId = row.pkgMap[p.id];
           if (!sheetId) {
@@ -2975,23 +3093,8 @@ function renderSchedule() {
           return wrap(sheetContent);
         }).join('');
 
-        // For Cover Index, add per-sheet volume selector.
-        // Volume is a property of the sheet NUMBER (shared across every package
-        // instance of that number), so read/write by sheetNum, not by a single id.
-        let sheetNameHtml = `<span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>`;
-        if (isCoverIndex) {
-          const currentVol = coverSheetVolume(row.sheetNum);
-          const sheetVolOpts = getAvailableVolumes().map(v => `<option value="${v.value}" ${v.value === currentVol ? 'selected' : ''}>${v.label}</option>`).join('');
-          // Flex container with min-width:0 keeps the name truncating and the
-          // fixed-width select from overflowing the Sheet Name column.
-          sheetNameHtml = `<span style="display:flex;align-items:center;gap:6px;min-width:0">
-            <span style="flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>
-            <select class="form-input" style="width:104px;flex-shrink:0;padding:4px 6px;font-size:11px" title="Assign this index sheet to a volume" onchange="handleSheetVolumeChange('${escHtml(row.sheetNum)}',this.value)">
-              ${sheetVolOpts}
-              <option value="__ADD__">+ Add Volume</option>
-            </select>
-          </span>`;
-        }
+        // Volume assignment moved to Level 5 — display sheet name only
+        const sheetNameHtml = `<span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(row.sheetName)}">${escHtml(row.sheetName)}</span>`;
 
         html += `<div class="schedule-row${isSel ? ' sched-selected' : ''}" data-sheetnum="${escHtml(row.sheetNum)}" style="${colInline};align-items:center">
           <span class="mono" style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(row.sheetNum)}</span>
@@ -3009,9 +3112,9 @@ function renderSchedule() {
       });
 
       const volPkgCells = sortedPkgs.map(p => `<span class="st-count">${volPkg[p.id]}</span>`).join('');
-      const volLabel = isCoverIndex && volumeGroups.length > 1 ? `${volGroup.vol} · ${volTotal}` : volTotal;
+      const volLabel = showVolLabels ? `${volGroup.vol} · ${volTotal}` : volTotal;
       html += `<div class="sched-subtotal" style="${colInline}">
-        <span class="st-label" title="Total in ${isCoverIndex ? volGroup.vol : group.label}">Volume subtotal · ${volLabel} sheet${volTotal !== 1 ? 's' : ''}</span>
+        <span class="st-label" title="Total in ${escHtml(volGroup.vol)}">Volume subtotal · ${volLabel} sheet${volTotal !== 1 ? 's' : ''}</span>
         ${volPkgCells}
       </div>`;
 
@@ -3059,39 +3162,12 @@ function setSheetStatus(id, val) {
   saveDB();
 }
 
-// Level 6 discipline volume selector — the single control for volume now that
-// Level 5's dropdowns are gone. It must write THROUGH to the sheet records, not
-// just to the discipline seed: exports read each sheet's own volumeNum (see
-// scheduleRowVolume), and ensureSheetVolumes() pins one on every sheet, so
-// updating only the discipline would change the preview heading while leaving
-// SHEET.INDEX.VOLUME in every export untouched.
-function setDisciplineVolumeEverywhere(prefix, vol) {
-  updateDisciplineVolume(prefix, vol);   // seed for sheets added later
-  let changed = false;
-  S.project.sheets.forEach(s => {
-    if (s.discipline === prefix && s.volumeNum !== vol) { s.volumeNum = vol; changed = true; }
-  });
-  if (changed) saveDB();
-}
-
-function handleVolumeSelectorChange(discPrefix, value) {
-  const vol = value === '__ADD__' ? addNewVolume() : value;
-  if (!vol) return;
-  setDisciplineVolumeEverywhere(discPrefix, vol);
-  renderSchedule();
-  renderPkgVolumeSummary();
-}
-
-function handleSheetVolumeChange(sheetNum, value) {
-  if (value === '__ADD__') {
-    const newVol = addNewVolume();
-    updateCoverSheetVolume(sheetNum, newVol);
-    renderSchedule();
-  } else if (value) {
-    updateCoverSheetVolume(sheetNum, value);
-    renderSchedule();
-  }
-}
+// NOTE: setDisciplineVolumeEverywhere / handleVolumeSelectorChange /
+// handleSheetVolumeChange have been retired with the Level 6 volume selectors.
+// They wrote the flat, project-wide s.volumeNum, which cannot express "P1 puts
+// Architecture in Volume-1 while P4 splits it across Volume-1 and Volume-2".
+// Writing is now done by setSheetVolume / applyVolumeToDisciplineSection in
+// Level 5, both of which are package-scoped.
 
 // ── Schedule row selection & bulk status ──────────────────────
 function toggleSchedSel(sheetNum, checked) {
@@ -3366,8 +3442,24 @@ function buildExportModel() {
   ensureExportCols();
   const spec  = exportColumnSpec();
   const byId  = new Map(spec.map(c => [c.id, c]));
-  const cols  = S.project.exportCols.filter(c => c.on).map(c => byId.get(c.id)).filter(Boolean);
-  const pkgCols = spec.filter(c => c.kind === 'pkg');
+  
+  // ── Package export range ───────────────────────────────────────────
+  // The Level 6 cursor names the FINAL package to export; P0 … that package are
+  // in, later ones are out. Membership is resolved by package ID, not by column
+  // position, so a user-reordered column list cannot change WHICH packages the
+  // range covers — only where their columns sit.
+  const maxIdx    = getPkgExportMaxIndex();
+  const inRangeId = new Set(
+    (S.project.packages || []).slice(0, maxIdx + 1).map(p => `pkg:${p.id}`)
+  );
+  const pkgCols = spec.filter(c => c.kind === 'pkg' && inRangeId.has(c.id));
+
+  // Enabled columns in the user's order, minus any package column outside the
+  // range. Counts and totals below are built from pkgCols, so they stay aligned.
+  const cols = S.project.exportCols
+    .filter(c => c.on)
+    .map(c => byId.get(c.id))
+    .filter(col => col && (col.kind !== 'pkg' || inRangeId.has(col.id)));
 
   const packages  = S.project.packages;
   const discOrder = {};
@@ -3682,20 +3774,52 @@ function renderExportCols() {
     ${S._exportColsOpen ? `<div class="ecol-grid">${chips}</div>` : ''}`;
 }
 
-// ── Per-package export opt-out ────────────────────────────────────
-// The Export Columns panel can toggle any column, but a package's own column is
-// the one a user most often wants to drop — so the same switch is surfaced on
-// the package column header in the Level 6 preview, where the package is in
-// front of them. Both controls write the SAME config entry; there is no second
-// source of truth.
-function pkgExportColId(pkgId) { return `pkg:${pkgId}`; }
-function isPkgInExport(pkgId) {
-  const c = ensureExportCols().find(x => x.id === pkgExportColId(pkgId));
-  return c ? c.on !== false : true;
+// NOTE: the old per-package export opt-out (pkgExportColId / isPkgInExport /
+// togglePkgExport) has been retired. Individual package columns are no longer
+// switched on and off independently — the range cursor below is the single
+// control, because "export through Pn" is the actual issue-set semantics and an
+// arbitrary on/off set could produce a gap (P0, P2 with no P1) that no real
+// document issue corresponds to. Any per-column toggling still lives in the
+// Export Columns panel for the non-package columns.
+
+// ── Package export range (Level 6) ───────────────────────────────────
+// One cursor per project: the index of the FINAL package to export. Everything
+// from P0 up to and including it goes out; everything after it is withheld.
+// Selecting SHEET.INDEX.P2 therefore exports P0, P1, P2.
+// The default is the last package, so an untouched project exports every column
+// exactly as it did before this control existed. The value is clamped on read so
+// deleting packages in Level 4 can never leave a cursor pointing off the end.
+function getPkgExportMaxIndex() {
+  const n = S.project?.packages?.length || 0;
+  if (!n) return -1;
+  const stored = S.project._pkgExportMaxIdx;
+  if (!Number.isInteger(stored)) return n - 1;
+  return Math.max(0, Math.min(stored, n - 1));
 }
-function togglePkgExport(pkgId) {
-  toggleExportCol(pkgExportColId(pkgId), !isPkgInExport(pkgId));
-  renderSchedule();   // repaint the header pill and dim/undim the column
+
+function setPkgExportMaxIndex(idx) {
+  if (!S.project) return;
+  S.project._pkgExportMaxIdx = idx;
+  saveDB();
+}
+
+// Is this package column within the export range [0 … max]?
+function isPkgInExportRange(pkgIdx) {
+  const maxIdx = getPkgExportMaxIndex();
+  return maxIdx >= 0 && pkgIdx >= 0 && pkgIdx <= maxIdx;
+}
+
+// Choose the final package to export. Not a toggle — there is always exactly one
+// cursor, so the range can never be emptied by a stray second click.
+function selectPkgExportRange(pkgIdx) {
+  setPkgExportMaxIndex(pkgIdx);
+  renderSchedule();
+  const pkgs = S.project.packages.slice(0, pkgIdx + 1);
+  const last = pkgs[pkgs.length - 1];
+  setAlert('status-bulk-alert',
+    `Export range set through <strong>${escHtml(last?.pCode || last?.name || '')}</strong> — ` +
+    `${pkgs.length} package column${pkgs.length !== 1 ? 's' : ''} ` +
+    `(${escHtml(pkgs.map(p => p.pCode || p.name).join(', '))}) in every format.`, 'info');
 }
 
 function toggleExportColsOpen() {
@@ -3834,6 +3958,26 @@ if (!DB.users.length) {
   if (migrated) saveDB();
 }
 
+// Migration: convert sheet.volumeNum (global) to sheet.volumes[packageId] (package-scoped)
+// For each sheet, copy volumeNum into volumes[packageId].
+{
+  let migrated = false;
+  DB.projects.forEach(proj => {
+    if (proj.sheets) {
+      proj.sheets.forEach(s => {
+        if (!s.volumes) { s.volumes = {}; }
+        if (s.volumeNum && s.packageId) {
+          s.volumes[s.packageId] = s.volumeNum;
+          migrated = true;
+        }
+        // Ensure volumes object exists even if empty
+        if (!s.volumes) { s.volumes = {}; migrated = true; }
+      });
+    }
+  });
+  if (migrated) saveDB();
+}
+
 // Show the most recent update time (from this or a previous session) on load.
 renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
@@ -3862,19 +4006,45 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
                 and are read-only: the code is the package's identity in the Level 6 export columns
   5. Review — drag-and-drop PDF files; PDF.js extracts sheet numbers and names automatically;
               review sheets per package via tabs; Sheet # and Sheet Name are editable inline.
-              Volume, Discipline and Discipline Sort Order are display-only here
-  6. Export — assign statuses, assign volumes, configure export columns, export to:
-              XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser Print/PDF.
-              Every format is generated from one column configuration, so column
-              visibility and left/right order apply identically to all five.
-              Default set (17 columns on an 8-package project, A–Q): Sheet Number,
-              Sheet Name, Discipline Name, Discipline Sort Order, one column per
-              package headed by its Sheet.Index.Code, Sheet Category,
+              Discipline and Discipline Sort Order are display-only here.
+              VOLUME IS ASSIGNED HERE, and is scoped to the open package tab, so
+              each package can carry its own combination of volumes for the same
+              sheets — a 40-sheet P1 in one volume, a 300-sheet P4 split across
+              three. Two controls write it: the dropdown on each Discipline Sort
+              Order section header applies a volume to every sheet in that
+              section for that package, and the per-sheet dropdown overrides one
+              sheet. Both offer Select / + Add New Volume / Remove. A removed
+              volume stays removed — it reads as "— none —" rather than reverting
+              to the discipline default
+  6. Export — assign statuses, choose the export range, configure export columns,
+              export to: XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser
+              Print/PDF. Every format is generated from one column configuration,
+              so column visibility and left/right order apply identically to all
+              five. Default set (17 columns on an 8-package project, A–Q): Sheet
+              Number, Sheet Name, Discipline Name, Discipline Sort Order, one
+              column per package headed by its Sheet.Index.Code, Sheet Category,
               Sheet.Index.Volume, Working or Printed, Issued Name, Sheet Issued
               Date. XLSX and Revit are flat one-row-per-sheet tables; CSV and
-              Print/PDF keep the grouped discipline subtotal layout. Volume is assigned
-              here: the selector on each discipline separator sets a whole discipline,
-              and Cover Drawing Index / "Not Apply" disciplines assign per sheet.
+              Print/PDF keep the grouped discipline subtotal layout.
+              EXPORT RANGE: the "To Here" button on a package column header names
+              the FINAL package to export; every preceding package column goes
+              with it. Selecting Sheet.Index.P2 exports P0, P1, P2; selecting
+              Sheet.Index.P4 exports P0 through P4. Withheld columns are dimmed
+              and struck through in the preview, and the banner above the grid
+              names the included set. The range applies identically to all five
+              formats. It defaults to the last package, so an untouched project
+              exports every column. Volume is read-only in Level 6 — assign it in
+              Level 5
+
+  VOLUME DATA MODEL
+  Volume lives on the sheet as volumes[packageId], so the same sheet number can
+  sit in different volumes in different packages. A key stored as "" is an
+  explicit unassignment and is preserved; only an ABSENT key falls back to the
+  Level 3 discipline default. Exports emit one row per unique sheet number, so
+  SHEET.INDEX.VOLUME resolves a single value using the project's "latest package
+  wins" rule, considering only packages inside the current export range.
+  Projects saved before package scoping are migrated on load: the old flat
+  sheet.volumeNum is copied into volumes[packageId] and manual edits survive.
 
   REVIT EXPORT
   The tab-delimited export carries the same configured columns as every other
