@@ -420,9 +420,10 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
    and Discipline Sort Order on a single line. On narrow viewports the table
    scrolls horizontally instead of wrapping.
    Columns (fixed px except Sheet Name, which takes the remainder):
-   checkbox 40 · Sheet # 120 · Sheet Name auto · Volume 170 ·
+   checkbox 40 · Sheet # 120 · Sheet Name auto ·
    Discipline 260 · Discipline Sort Order 320 · Delete 64.
-   Volume, Discipline and Discipline Sort Order are all display-only text. */
+   Discipline and Discipline Sort Order are display-only text.
+   Volume assignment moved to section-level dropdown only (in rev-section rows). */
 #file-list{overflow-x:auto}
 #file-list .data-table{table-layout:fixed;min-width:1060px}
 #file-list .data-table th{white-space:nowrap}
@@ -1012,6 +1013,13 @@ function fmtStamp(d, withSeconds = true) {
   const p = n => String(n).padStart(2, '0');
   const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}`;
   return withSeconds ? `${base}-${p(d.getSeconds())}` : base;
+}
+
+// Compact timestamp format for export filenames: YYMMDD_hhmmss
+function fmtStampCompact(d) {
+  const p = n => String(n).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${yy}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 // Record "now" as the latest update and refresh the sidebar display.
@@ -2411,26 +2419,11 @@ function renderFileList() {
   };
 
   const sheetRowHtml = s => {
-    const currentVol = sheetEffectiveVolume(s, pkgId);
-    const pkgVols = getPackageVolumes(pkgId);
-    const volOpts = pkgVols.map(v => `<option value="${escHtml(v)}" ${v === currentVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
-    const volDropdown = `
-      <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="handleSheetVolumeDropdown('${s.id}','${pkgId}',this.value)" title="Assign this sheet to a volume — overrides the section assignment">
-        <option value="" ${!currentVol ? 'selected' : ''}>— none —</option>
-        ${volOpts}
-        <option value="__ADD__">+ Add New Volume</option>
-        ${currentVol ? `<option value="__REMOVE__">✕ Remove</option>` : ''}
-      </select>`;
     return `
           <tr id="row-${s.id}" style="${S._selectedSheets.has(s.id) ? 'background:var(--blue-bg)' : ''}">
             <td><input type="checkbox" ${S._selectedSheets.has(s.id) ? 'checked' : ''} onchange="toggleSheetSel('${s.id}',this.checked)" style="cursor:pointer"/></td>
             <td><input value="${escHtml(s.sheetNum)}" onchange="updateSheet('${s.id}','sheetNum',this.value)"/></td>
             <td><input value="${escHtml(s.sheetName)}" onchange="updateSheet('${s.id}','sheetName',this.value)"/></td>
-            <td>
-              <div class="disc-cell" style="padding:0">
-                ${volDropdown}
-              </div>
-            </td>
             <td>
               <div class="disc-cell">
                 ${discValueHtml(s.discipline, 'name')}
@@ -2455,7 +2448,7 @@ function renderFileList() {
     const group = sheets.slice(gi, gj);
     // Blank spacer row at the TOP of each discipline section
     bodyRows += `
-          <tr class="rev-blank"><td colspan="7"></td></tr>`;
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
     // ── Section top row: discipline label + a Volume dropdown that applies to
     // every sheet in this section. Section-level dropdown sets volume for all
     // sheets in this discipline within the current package.
@@ -2492,7 +2485,6 @@ function renderFileList() {
             </td>
             <td></td>
             <td></td>
-            <td></td>
           </tr>`;
     bodyRows += group.map(sheetRowHtml).join('');
     // Subtotal row: numeric count only (no text label), shown in the
@@ -2505,9 +2497,8 @@ function renderFileList() {
             <td></td>
             <td></td>
             <td></td>
-            <td></td>
           </tr>
-          <tr class="rev-blank"><td colspan="7"></td></tr>`;
+          <tr class="rev-blank"><td colspan="6"></td></tr>`;
     gi = gj;
   }
 
@@ -2519,11 +2510,10 @@ function renderFileList() {
   const volPairs = volumeCountsForPackage(pkgId);
   if (volPairs.length) {
     bodyRows += `
-          <tr class="rev-blank"><td colspan="7"></td></tr>
+          <tr class="rev-blank"><td colspan="6"></td></tr>
           <tr class="rev-volhdr">
             <td></td>
             <td colspan="2">Volume Totals</td>
-            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -2537,7 +2527,6 @@ function renderFileList() {
             <td class="rev-volname">${escHtml(vol)}</td>
             <td></td>
             <td></td>
-            <td></td>
           </tr>`;
     });
   }
@@ -2547,7 +2536,6 @@ function renderFileList() {
             <td></td>
             <td>Grand Total</td>
             <td class="rev-count">${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}</td>
-            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -2573,7 +2561,6 @@ function renderFileList() {
       <thead><tr>
         <th style="width:40px"><input type="checkbox" id="chk-all" ${selCount === sheets.length && sheets.length > 0 ? 'checked' : ''} onchange="toggleSelectAllSheets(this.checked)" style="cursor:pointer"/></th>
         <th style="width:120px">Sheet #</th><th>Sheet Name</th>
-        <th style="width:170px">Volume</th>
         <th style="width:260px">Discipline</th>
         <th style="width:320px">
           <div style="display:flex;align-items:center;gap:7px">
@@ -2654,17 +2641,9 @@ function updateSheet(id, field, val) {
   }
 }
 
-// Sheet-level Volume dropdown. Handles the two sentinel options as well as a
-// plain selection, so "+ Add New Volume" can never be stored as a volume name.
-// An explicit '' (— none — / Remove) is persisted as an explicit unassignment,
-// not a deletion, so it survives the ensureSheetVolumes() backfill.
-function handleSheetVolumeDropdown(sheetId, pkgId, value) {
-  let vol = value;
-  if (value === '__ADD__') vol = addNewVolume();
-  else if (value === '__REMOVE__') vol = '';
-  setSheetVolume(sheetId, pkgId, vol);
-  renderFileList();
-}
+// NOTE: handleSheetVolumeDropdown was retired when per-sheet Volume controls
+// were removed from Level 5 Review. Volume is now assigned only at the
+// Discipline Sort Order section level, via handleSectionVolumeChange below.
 
 // Section-level Volume dropdown on a Discipline Sort Order header. Writes the
 // chosen volume to EVERY sheet of that discipline in the current package only.
@@ -3083,7 +3062,7 @@ function renderSchedule() {
   let curGroup = null;
   rows.forEach(row => {
     const disc      = S.project.disciplines.find(d => d.prefix === row.discipline);
-    const discLabel = disc ? `${disc.prefix} — ${disc.name}` : (row.discipline || 'Unassigned');
+    const discLabel = disc ? `${disc.order}-${disc.name}` : (row.discipline || 'Unassigned');
     if (!curGroup || curGroup.label !== discLabel) {
       curGroup = { label: discLabel, prefix: disc?.prefix || '', rows: [] };
       groups.push(curGroup);
@@ -3544,7 +3523,7 @@ function exportFilePrefix() {
   return num || 'PROJECT';
 }
 function exportFileBase(type) {
-  return `${exportFilePrefix()}_${type}_${fmtStamp(new Date(), false)}`;
+  return `index_${fmtStampCompact(new Date())}`;
 }
 
 // ── The single source of truth for every export format ───────────────
@@ -3583,6 +3562,13 @@ function buildExportModel() {
   // discipline order then sheet number, and the LATEST package's Sheet Name wins.
   const pkgIdx = {};
   packages.forEach((p, i) => { pkgIdx[p.id] = i; });
+  
+  // Determine the cutoff index based on the selected volume source package:
+  // only include sheets from packages up to and including the selected package.
+  // If no package is selected, include all packages (index = infinity).
+  const volumeSourcePkgId = getPkgVolumeSourceId();
+  const volumeSourceIdx = volumeSourcePkgId ? (pkgIdx[volumeSourcePkgId] ?? -1) : Infinity;
+  
   const sheetMap = new Map();
   [...S.project.sheets]
     .sort((a, b) => {
@@ -3593,6 +3579,8 @@ function buildExportModel() {
     })
     .forEach(s => {
       const idx = pkgIdx[s.packageId] ?? -1;
+      // Only include sheets from packages up to and including the volume source package
+      if (idx > volumeSourceIdx) return;
       if (!sheetMap.has(s.sheetNum)) {
         sheetMap.set(s.sheetNum, { sheetNum: s.sheetNum, sheetName: s.sheetName, discipline: s.discipline, pkgMap: {}, _nameIdx: idx });
       } else {
@@ -3613,8 +3601,6 @@ function buildExportModel() {
     const disc     = S.project.disciplines.find(d => d.prefix === r.discipline);
     const discVal  = disc ? `${disc.prefix}-${disc.name}` : (r.discipline || '');
     const discSort = disc ? `${disc.order}-${disc.name}` : '';
-    // Use the selected Volume source package if available; otherwise use default "latest package wins"
-    const volumeSourcePkgId = getPkgVolumeSourceId();
     const values = {
       sheetNum:       r.sheetNum,
       sheetName:      r.sheetName,
@@ -3638,7 +3624,7 @@ function buildExportModel() {
     });
     return {
       ...r,
-      discLabel: disc ? `${disc.prefix} — ${disc.name}` : (r.discipline || 'Unassigned'),
+      discLabel: disc ? `${disc.order}-${disc.name}` : (r.discipline || 'Unassigned'),
       values
     };
   });
