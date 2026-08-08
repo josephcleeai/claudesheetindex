@@ -3288,16 +3288,19 @@ function addManualSheetUpload() {
 // grouped discipline/subtotal layout — but never in which columns appear or in
 // what order.
 //
-// Default column set (all enabled, in this order). Package columns are one per
-// Level 4 package — there is no synthetic padding, so no column ever exports
-// blank for want of a package behind it.
+// Default column set (all enabled, in this order). Sheet-level attributes hold
+// A–I; package columns form one contiguous block from J rightward, one per Level
+// 4 package — there is no synthetic padding, so no column ever exports blank for
+// want of a package behind it.
 //   A SHEET NUMBER            B SHEET NAME
 //   C DISCIPLINE NAME         D DISCIPLINE SORT ORDER
-//   E…  SHEET.INDEX.P0 …      (one per Level 4 package, in Level 4 order)
-//   …   SHEET CATEGORY        SHEET.INDEX.VOLUME
-//   …   WORKING OR PRINTED    ISSUED NAME
-//   …   SHEET ISSUED DATE
-// On a default 8-package project that is 17 columns, A–Q.
+//   E SHEET CATEGORY          F SHEET.INDEX.VOLUME
+//   G WORKING OR PRINTED      H ISSUED NAME
+//   I SHEET ISSUED DATE
+//   J…  SHEET.INDEX.P0 …      (one per Level 4 package, in Level 4 order)
+// On a default 8-package project that is 17 columns, A–Q (J–Q = P0…P7); a
+// 9-package project is 18, A–R. Because the package block is last, A–I keep
+// their letters no matter how many packages a project has.
 const EXPORT_DEFAULT_WORKING   = 'Printed';
 const EXPORT_DEFAULT_TBD       = 'TBD';
 
@@ -3326,6 +3329,19 @@ function exportPkgSlots() {
 
 // The full catalogue of exportable columns in DEFAULT order. `kind` drives
 // per-format treatment (XLSX number formats, subtotal counts, widths).
+//
+// ORDER: every sheet-level attribute comes first, then ALL package columns in a
+// contiguous block at the far right. On an 8-package project that is 17 columns:
+//   A SHEET NUMBER          B SHEET NAME           C DISCIPLINE NAME
+//   D DISCIPLINE SORT ORDER E SHEET CATEGORY       F SHEET.INDEX.VOLUME
+//   G WORKING OR PRINTED    H ISSUED NAME          I SHEET ISSUED DATE
+//   J… SHEET.INDEX.P0 … P7  (one per Level 4 package, in Level 4 order)
+// A 9-package project extends the block to R (… SHEET.INDEX.P8), and so on —
+// the package block simply grows rightward, so the letter of every sheet
+// attribute (A–I) is now FIXED regardless of package count. Under the previous
+// order (packages wedged between DISCIPLINE SORT ORDER and SHEET CATEGORY),
+// adding a package shifted SHEET CATEGORY and everything after it one letter to
+// the right, which moved the columns a Revit/DiRoots field mapping is keyed to.
 function exportColumnSpec() {
   const up = v => String(v || '').toUpperCase();
   return [
@@ -3333,7 +3349,6 @@ function exportColumnSpec() {
     { id: 'sheetName',      label: 'SHEET NAME',            kind: 'name',  width: 42 },
     { id: 'discipline',     label: 'DISCIPLINE NAME',       kind: 'text',  width: 26 },
     { id: 'discSort',       label: 'DISCIPLINE SORT ORDER', kind: 'text',  width: 28 },
-    ...exportPkgSlots().map(s => ({ id: s.id, label: up(s.label), kind: 'pkg', pkg: s.pkg, width: 10 })),
     { id: 'sheetCategory',  label: 'SHEET CATEGORY',        kind: 'text',  width: 24 },
     { id: 'volume',         label: 'SHEET.INDEX.VOLUME',    kind: 'text',  width: 20 },
     // preserveCase: CSV and Print uppercase their values; this one is a fixed
@@ -3342,6 +3357,20 @@ function exportColumnSpec() {
     { id: 'workingPrinted', label: 'WORKING OR PRINTED',    kind: 'text',  width: 20, preserveCase: true },
     { id: 'issuedName',     label: 'ISSUED NAME',           kind: 'text',  width: 20 },
     { id: 'issuedDate',     label: 'SHEET ISSUED DATE',     kind: 'text',  width: 20 },
+    ...exportPkgSlots().map(s => ({ id: s.id, label: up(s.label), kind: 'pkg', pkg: s.pkg, width: 10 })),
+  ];
+}
+
+// The column order shipped BEFORE package columns moved to the right-hand block.
+// ensureExportCols() uses this to tell an untouched saved config (which was
+// auto-generated in this order, and should adopt the new default) from one the
+// user actually reordered (which must be left alone).
+function legacyExportColOrderIds() {
+  const pkgIds = exportPkgSlots().map(s => s.id);
+  return [
+    'sheetNum', 'sheetName', 'discipline', 'discSort',
+    ...pkgIds,
+    'sheetCategory', 'volume', 'workingPrinted', 'issuedName', 'issuedDate',
   ];
 }
 
@@ -3384,6 +3413,22 @@ function ensureExportCols() {
     cfg.splice(pos, 0, { id: col.id, on: true });
     changed = true;
   });
+
+  // Migration: adopt the new default order (package columns moved to the
+  // right-hand block) for configs the user never reordered. Every project that
+  // has ever opened Level 6 carries a saved order, because this function writes
+  // one on first render — so without this step the new default would reach
+  // nobody. The test is exact: only a config whose id order is byte-for-byte the
+  // OLD default is rewritten. Any user reordering, however small, fails the test
+  // and is preserved verbatim. on/off flags are carried across by id, so column
+  // visibility choices survive the reshuffle untouched.
+  const legacyIds = legacyExportColOrderIds();
+  const curIds    = cfg.map(c => c.id);
+  if (curIds.length === legacyIds.length && curIds.every((id, i) => id === legacyIds[i])) {
+    const onById = new Map(cfg.map(c => [c.id, c.on]));
+    const reordered = spec.map(col => ({ id: col.id, on: onById.get(col.id) !== false }));
+    if (JSON.stringify(reordered) !== JSON.stringify(cfg)) { cfg = reordered; changed = true; }
+  }
 
   S.project.exportCols = cfg;
   if (changed) saveDB();
@@ -4116,12 +4161,28 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
               export to: XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser
               Print/PDF. Every format is generated from one column configuration,
               so column visibility and left/right order apply identically to all
-              five. Default set (17 columns on an 8-package project, A–Q): Sheet
-              Number, Sheet Name, Discipline Name, Discipline Sort Order, one
-              column per package headed by its Sheet.Index.Code, Sheet Category,
-              Sheet.Index.Volume, Working or Printed, Issued Name, Sheet Issued
-              Date. XLSX and Revit are flat one-row-per-sheet tables; CSV and
-              Print/PDF keep the grouped discipline subtotal layout.
+              five. Default set — sheet attributes first (A–I), then every package
+              column in one block from J rightward:
+                A Sheet Number          B Sheet Name
+                C Discipline Name       D Discipline Sort Order
+                E Sheet Category        F Sheet.Index.Volume
+                G Working or Printed    H Issued Name
+                I Sheet Issued Date
+                J… one column per package, headed by its Sheet.Index.Code
+              That is 17 columns on the default 8-package project (A–Q, J–Q =
+              P0…P7) and 18 on a 9-package one (A–R). Putting packages last
+              FIXES the letter of every sheet attribute: adding a 9th package
+              appends R instead of pushing Sheet Category and everything after it
+              one column right, so a Revit/DiRoots field mapping keyed to those
+              letters survives a package being added. Projects saved under the
+              old order (packages between Discipline Sort Order and Sheet
+              Category) are migrated on load, but ONLY if the order was never
+              hand-edited; a customised order is left exactly as the user left
+              it, and Reset always restores the order above.
+              XLSX and Revit are flat one-row-per-sheet tables; CSV and
+              Print/PDF keep the grouped discipline subtotal layout, whose
+              subtotal label now spans A–I with the per-package counts under
+              J onward.
               EXPORT RANGE: the "To Here" button on a package column header names
               the FINAL package to export; every preceding package column goes
               with it. Selecting Sheet.Index.P2 exports P0, P1, P2; selecting
