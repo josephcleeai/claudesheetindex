@@ -359,24 +359,44 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .pkg-col-hdr-controls{display:flex;align-items:center;gap:3px;justify-content:flex-start;margin-top:4px;flex-wrap:nowrap}
 .pkg-sel-btn{font-size:10px;font-family:var(--mono);padding:1px 5px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .12s;line-height:1.5}
 .pkg-sel-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-/* Export-range cursor pill, on the preview column header. Green = inside the
-   exported range, amber = withheld. */
-.pkg-exp-btn{
+/* Per-column EXPORT INCLUDE toggle, on every preview column header.
+   Checkbox semantics: any number of columns may be on, and each writes the same
+   exportCols flag the Export Columns panel does. Green = included. */
+.col-inc-btn{
   font-size:10px;font-family:var(--mono);line-height:1.5;
-  padding:1px 5px;margin-top:4px;max-width:100%;
-  border:1px solid var(--border2);border-radius:3px;
-  background:var(--green-bg);border-color:#C0DD97;color:var(--green);cursor:pointer;
+  padding:1px 5px;max-width:100%;
+  border:1px solid #C0DD97;border-radius:3px;
+  background:var(--green-bg);color:var(--green);cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .12s;
 }
-.pkg-exp-btn:hover{border-color:var(--accent);color:var(--accent)}
-.pkg-exp-btn.pkg-exp-off{background:var(--amber-bg);border-color:var(--amber);color:var(--amber);font-weight:600}
-.pkg-exp-btn.pkg-exp-off:hover{border-color:var(--amber);color:var(--amber)}
-/* Export-range banner above the schedule grid */
+.col-inc-btn:hover{border-color:var(--accent);color:var(--accent)}
+.col-inc-btn.col-inc-off{background:var(--amber-bg);border-color:#E8CFA4;color:var(--amber);font-weight:600}
+.col-inc-btn.col-inc-off:hover{border-color:var(--amber);color:var(--amber)}
+
+/* Per-package VOLUME SOURCE selector, on each package column header.
+   Radio semantics: exactly one package is selected at all times, so the chosen
+   one renders solid blue and cannot be clicked off — only moved. */
+.pkg-vol-btn{
+  font-size:10px;font-family:var(--mono);line-height:1.5;
+  padding:1px 5px;max-width:100%;
+  border:1px solid var(--border2);border-radius:3px;
+  background:var(--surface);color:var(--text3);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .12s;
+}
+.pkg-vol-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-bg)}
+.pkg-vol-btn.pkg-vol-on{
+  background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600;cursor:default;
+}
+.pkg-vol-btn.pkg-vol-on:hover{background:var(--blue);border-color:var(--blue);color:#fff}
+/* The two header toggles sit on one row so the header height does not grow. */
+.pkg-col-hdr-toggles{display:flex;align-items:center;gap:3px;margin-top:4px;flex-wrap:wrap}
+
+/* Header/summary bar above the schedule grid */
 .exp-range-bar{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   padding:8px 12px;margin-bottom:10px;
   background:var(--surface);border:1px solid var(--border);
-  border-left:3px solid var(--green);border-radius:var(--radius);
+  border-left:3px solid var(--blue);border-radius:var(--radius);
 }
 .exp-range-label{
   font-size:10px;font-family:var(--display);font-weight:600;
@@ -385,12 +405,14 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .exp-range-list{font-size:11.5px;font-family:var(--mono);color:var(--text)}
 .exp-range-all{font-size:10px;font-family:var(--mono);background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:3px;padding:1px 6px}
 .exp-range-out{font-size:10px;font-family:var(--mono);background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 6px}
+.exp-range-vol{font-size:10px;font-family:var(--mono);background:var(--blue-bg);color:var(--blue);border:1px solid #B8D2EE;border-radius:3px;padding:1px 6px}
 .exp-range-hint{font-size:10.5px;color:var(--text3);margin-left:auto}
-/* An excluded package's header reads as struck out, and its data cells dim, so
+/* An excluded column's header reads as struck out, and its data cells dim, so
    the whole column is legible as "not going into the export". */
 .pkg-col-hdr-out .pkg-col-hdr-code,
 .pkg-col-hdr-out .pkg-col-hdr-name,
 .pkg-col-hdr-out .pkg-col-hdr-due{opacity:0.45;text-decoration:line-through}
+.sched-hdr-label-out{opacity:0.45;text-decoration:line-through}
 .pkg-out{display:block;opacity:0.4}
 .pkg-status-sel{font-size:11px;font-family:var(--mono);padding:1px 4px;border:1px solid var(--border2);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;width:36px;text-align:center}
 /* Level 5 Review: sheet table column sizing.
@@ -2729,38 +2751,26 @@ function addNewVolume() {
 // else and coverSheetVolume / updateCoverSheetVolume have been removed.
 
 // SHEET.INDEX.VOLUME for a deduplicated export/schedule row.
-// Volume is now per package, but exports emit one row per sheet NUMBER, so a
-// single value has to be chosen. By default, this follows the project's established
-// "latest package wins" rule — the same rule already used for Sheet Name — and
-// only considers packages inside the current export range, so narrowing the
-// range to P2 reports the volume P2 assigned rather than one from a withheld
-// later package. If a specific sourcePackageId is provided (for Level 6 exports),
-// use ONLY that package's volume assignment instead. Sheets with no assignment
-// anywhere read as "Unassigned".
+// Volume is per package, but exports emit one row per sheet NUMBER, so a single
+// value has to be chosen. That value comes from EXACTLY ONE package — the
+// Volume source, picked on a package column header — and there is no other code
+// path. The old "latest package wins" fallback has been DELETED, not just
+// bypassed: it resolved each sheet independently, so a single export could take
+// A-101's volume from P2, A-102's from P1 and A-103's from P0 purely because of
+// which packages happened to contain each sheet. That is precisely the mixing
+// this column is supposed to be free of, and leaving it as the untouched-project
+// default meant most exports still hit it.
+// A sheet absent from the source package, or explicitly unassigned there, reads
+// "Unassigned" — it does NOT inherit a neighbouring package's volume, because
+// silent inheritance is what mixed the values in the first place.
 function scheduleRowVolume(row, sourcePackageId) {
-  // If a specific source package is selected for export, use only that package's volume
-  if (sourcePackageId) {
-    const sheetId = row.pkgMap ? row.pkgMap[sourcePackageId] : null;
-    if (!sheetId) return 'Unassigned';
-    const rec = S.project.sheets.find(s => s.id === sheetId);
-    if (!rec) return 'Unassigned';
-    const vol = sheetEffectiveVolume(rec, sourcePackageId);
-    return vol || 'Unassigned';
-  }
-  
-  // Default: "latest package wins" rule across the export range
-  const maxIdx = getPkgExportMaxIndex();
-  const pkgs   = (S.project.packages || []).slice(0, maxIdx + 1);
-  let winner = '';
-  pkgs.forEach(p => {
-    const sheetId = row.pkgMap ? row.pkgMap[p.id] : null;
-    if (!sheetId) return;
-    const rec = S.project.sheets.find(s => s.id === sheetId);
-    if (!rec) return;
-    const vol = sheetEffectiveVolume(rec, p.id);
-    if (vol) winner = vol;   // later package overwrites earlier
-  });
-  return winner || 'Unassigned';
+  const pkgId = sourcePackageId || getPkgVolumeSourceId();
+  if (!pkgId) return 'Unassigned';           // no packages on the project at all
+  const sheetId = row.pkgMap ? row.pkgMap[pkgId] : null;
+  if (!sheetId) return 'Unassigned';         // sheet not issued in the source package
+  const rec = S.project.sheets.find(s => s.id === sheetId);
+  if (!rec) return 'Unassigned';
+  return sheetEffectiveVolume(rec, pkgId) || 'Unassigned';
 }
 
 // ── Volume assignment — owned by Level 5 Review ──────────────────────
@@ -2976,18 +2986,34 @@ function renderSchedule() {
   ).join('');
 
   // ── Header ───────────────────────────────────────────────────────
-  // Package export range selection: clicking a package button sets it as the max
-  // to include in export. All packages from P0 up to the selected package are included.
-  const maxIdx = getPkgExportMaxIndex();
+  // Each package column header carries TWO independent controls:
+  //   Export  — checkbox semantics; toggles this column's exportCols flag, the
+  //             same flag the Export Columns panel edits.
+  //   Volume  — radio semantics; makes this package the single source of
+  //             SHEET.INDEX.VOLUME for every sheet. Exactly one is always on.
+  // They are deliberately separate: a package can supply the volumes without its
+  // own status column being exported, and vice versa.
+  const volSrcId = getPkgVolumeSourceId();
   const pkgHeaderCells = sortedPkgs.map((p, idx) => {
-    const inRange = maxIdx >= 0 && idx <= maxIdx;
-    return `<div class="pkg-col-hdr${inRange ? '' : ' pkg-col-hdr-out'}">
+    const colId   = `pkg:${p.id}`;
+    const on      = isExportColOn(colId);
+    const isVol   = volSrcId === p.id;
+    return `<div class="pkg-col-hdr${on ? '' : ' pkg-col-hdr-out'}">
       <div class="pkg-col-hdr-code" title="Sheet.Index.Code — assigned automatically in Level 4 Packages">${escHtml(p.pCode || '')}</div>
       <div class="pkg-col-hdr-name">${escHtml(p.name)}</div>
       <div class="pkg-col-hdr-due">${escHtml(p.due)}</div>
-      <button class="pkg-exp-btn${inRange ? '' : ' pkg-exp-off'}" onclick="selectPkgExportRange(${idx})" title="${inRange
-        ? 'Included in export up to this package — click to export through here'
-        : 'Excluded from export — click to include this and all prior packages'}">${inRange ? '✓' : '○'} To Here</button>
+      <div class="pkg-col-hdr-toggles">
+        <button class="col-inc-btn${on ? '' : ' col-inc-off'}"
+                onclick="toggleExportColFromHeader('${escHtml(colId)}')"
+                title="${on
+                  ? 'This column IS exported — click to leave it out'
+                  : 'This column is NOT exported — click to include it'}">${on ? '✓' : '○'} Export</button>
+        <button class="pkg-vol-btn${isVol ? ' pkg-vol-on' : ''}"
+                onclick="selectPkgVolumeSource('${escHtml(p.id)}')"
+                title="${isVol
+                  ? 'SHEET.INDEX.VOLUME reads from this package for every sheet'
+                  : 'Use THIS package\'s Level 5 volumes for every sheet in the export'}">${isVol ? '◉' : '○'} Volume</button>
+      </div>
       <div class="pkg-col-hdr-controls">
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',true)"  title="Select all sheets in this package">All</button>
         <button class="pkg-sel-btn" onclick="selectPkgSheets('${p.id}',false)" title="Unselect all sheets in this package">None</button>
@@ -2999,25 +3025,47 @@ function renderSchedule() {
     </div>`;
   }).join('');
 
+  // The two leading grid columns get the same Export toggle, so "a button on
+  // each column" holds for every column the grid shows, not just packages.
+  const leadHeader = [
+    { id: 'sheetNum',  label: 'Sheet #' },
+    { id: 'sheetName', label: 'Sheet Name' },
+  ].map(c => {
+    const on = isExportColOn(c.id);
+    return `<div>
+      <span class="${on ? '' : 'sched-hdr-label-out'}">${escHtml(c.label)}</span>
+      <div class="pkg-col-hdr-toggles">
+        <button class="col-inc-btn${on ? '' : ' col-inc-off'}"
+                onclick="toggleExportColFromHeader('${escHtml(c.id)}')"
+                title="${on
+                  ? 'This column IS exported — click to leave it out'
+                  : 'This column is NOT exported — click to include it'}">${on ? '✓' : '○'} Export</button>
+      </div>
+    </div>`;
+  }).join('');
+
   const gridStyle = `grid-template-columns:${colTemplate};column-gap:2%;align-items:start;padding-top:10px;padding-bottom:10px`;
 
-  // Export-range banner: states in words what the "To Here" cursor selected, so
-  // the included set is legible without reading the dimming across the columns.
-  const inPkgs   = sortedPkgs.slice(0, maxIdx + 1);
-  const outCount = sortedPkgs.length - inPkgs.length;
+  // Summary bar: names the Volume source package and counts excluded columns, so
+  // both settings are legible without reading the toggles across every header.
+  const volPkg      = sortedPkgs.find(p => p.id === volSrcId);
+  const outPkgCount = sortedPkgs.filter(p => !isExportColOn(`pkg:${p.id}`)).length;
+  const totalOn     = ensureExportCols().filter(c => c.on).length;
   let html = `<div class="exp-range-bar">
-    <span class="exp-range-label">Export range</span>
-    <span class="exp-range-list">${inPkgs.length
-      ? escHtml(inPkgs.map(p => p.pCode || p.name).join('  ·  '))
+    <span class="exp-range-label">Volume source</span>
+    <span class="exp-range-vol">${volPkg
+      ? escHtml(volPkg.pCode || volPkg.name)
       : '<em>no packages</em>'}</span>
-    ${outCount > 0
-      ? `<span class="exp-range-out">${outCount} package${outCount !== 1 ? 's' : ''} withheld</span>`
-      : `<span class="exp-range-all">all packages</span>`}
-    <span class="exp-range-hint">Use “To Here” on a package column to change the final package exported</span>
+    <span class="exp-range-label" style="margin-left:6px">Columns</span>
+    <span class="exp-range-list">${totalOn} exporting</span>
+    ${outPkgCount > 0
+      ? `<span class="exp-range-out">${outPkgCount} package column${outPkgCount !== 1 ? 's' : ''} excluded</span>`
+      : `<span class="exp-range-all">all package columns</span>`}
+    <span class="exp-range-hint">“Export” includes a column · “Volume” picks the one package volumes come from</span>
   </div>`;
 
   html += `<div class="schedule-header" style="${gridStyle}">
-    <span>Sheet #</span><span>Sheet Name</span>${pkgHeaderCells}
+    ${leadHeader}${pkgHeaderCells}
   </div>`;
 
   // ── Helper: count a sheet only when it carries a status number ────
@@ -3099,11 +3147,11 @@ function renderSchedule() {
       volGroup.rows.forEach(row => {
         const isSel = S._schedSel.has(row.sheetNum);
 
-        // Status cells — follow sortedPkgs column order. A package outside the
-        // export range still shows its data (this is a schedule preview, not an
-        // export preview) but is dimmed so the exclusion reads at a glance.
-        const statusCells = sortedPkgs.map((p, idx) => {
-          const out     = !isPkgInExportRange(idx);
+        // Status cells — follow sortedPkgs column order. An EXCLUDED package
+        // column still shows its data (this is a schedule preview, so the status
+        // selectors stay usable) but is dimmed so the exclusion reads at a glance.
+        const statusCells = sortedPkgs.map((p) => {
+          const out     = !isExportColOn(`pkg:${p.id}`);
           const wrap    = html => (out ? `<span class="pkg-out">${html}</span>` : html);
           const sheetId = row.pkgMap[p.id];
           if (!sheetId) {
@@ -3512,23 +3560,20 @@ function buildExportModel() {
   const spec  = exportColumnSpec();
   const byId  = new Map(spec.map(c => [c.id, c]));
   
-  // ── Package export range ───────────────────────────────────────────
-  // The Level 6 cursor names the FINAL package to export; P0 … that package are
-  // in, later ones are out. Membership is resolved by package ID, not by column
-  // position, so a user-reordered column list cannot change WHICH packages the
-  // range covers — only where their columns sit.
-  const maxIdx    = getPkgExportMaxIndex();
-  const inRangeId = new Set(
-    (S.project.packages || []).slice(0, maxIdx + 1).map(p => `pkg:${p.id}`)
-  );
-  const pkgCols = spec.filter(c => c.kind === 'pkg' && inRangeId.has(c.id));
-
-  // Enabled columns in the user's order, minus any package column outside the
-  // range. Counts and totals below are built from pkgCols, so they stay aligned.
+  // ── Which columns export ───────────────────────────────────────────
+  // Inclusion is now purely per column: the exportCols on/off flag, set from
+  // either the grid header button or the Export Columns panel. There is no
+  // separate range concept, so a non-contiguous package set (P0 and P2, no P1)
+  // is expressible — which the old "To Here" cursor could not do.
   const cols = S.project.exportCols
     .filter(c => c.on)
     .map(c => byId.get(c.id))
-    .filter(col => col && (col.kind !== 'pkg' || inRangeId.has(col.id)));
+    .filter(Boolean);
+
+  // Package columns that are actually exporting, in the user's column order.
+  // Subtotals and grand totals are built from this list, so counts always sit
+  // under the package columns that survived the filter.
+  const pkgCols = cols.filter(c => c.kind === 'pkg');
 
   const packages  = S.project.packages;
   const discOrder = {};
@@ -3810,42 +3855,43 @@ function printSchedule() {
 function renderVolumeSource() {
   const el = document.getElementById('volume-source-panel');
   if (!el || !S.project) return;
-  
+
   const packages = S.project.packages || [];
-  if (!packages.length) return;
-  
+  if (!packages.length) { el.innerHTML = ''; return; }
+
+  // No "default / latest package wins" entry any more: that option WAS the
+  // mixing bug. Every entry is a single package, and one is always selected, so
+  // the dropdown and the per-package "Volume" header buttons are two views of the
+  // same radio group.
   const selectedId = getPkgVolumeSourceId();
-  const options = [
-    `<option value="">Default (Latest Package Wins)</option>`,
-    ...packages.map(p => 
-      `<option value="${escHtml(p.id)}" ${p.id === selectedId ? 'selected' : ''}>
-        ${escHtml(p.pCode || `Sheet.Index.P${packages.indexOf(p)}`)} — ${escHtml(p.name)}
-      </option>`
-    )
-  ].join('');
-  
+  const options = packages.map((p, i) =>
+    `<option value="${escHtml(p.id)}"${p.id === selectedId ? ' selected' : ''}>` +
+    `${escHtml(p.pCode || `Sheet.Index.P${i}`)} — ${escHtml(p.name)}</option>`
+  ).join('');
+
+  const sel     = packages.find(p => p.id === selectedId);
+  const nSheets = S.project.sheets.filter(s => s.packageId === selectedId).length;
+
   el.innerHTML = `
-    <div style="padding:12px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:18px">
-      <label class="form-label" style="margin-bottom:8px">Volume Source for Export</label>
-      <select id="volume-source-select" class="form-input" onchange="setVolumeSource(this.value);" style="font-size:13px">
+    <div style="padding:12px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border)">
+      <label class="form-label" style="margin-bottom:8px">Volume Source for Export — one package only</label>
+      <select id="volume-source-select" class="form-input" onchange="setVolumeSource(this.value)" style="font-size:13px">
         ${options}
       </select>
       <div style="font-size:11px;color:var(--text3);margin-top:6px">
-        ${selectedId 
-          ? `Sheets will use Volume assignments from the selected package.` 
-          : `Sheets will use the latest package's Volume assignments (across the export range).`}
+        Every sheet takes SHEET.INDEX.VOLUME from
+        <strong>${escHtml(sel?.pCode || sel?.name || '')}</strong>
+        (${nSheets} sheet${nSheets !== 1 ? 's' : ''} issued in it).
+        Sheets not issued in this package export as “Unassigned”.
+        ${nSheets === 0 ? '<span style="color:var(--amber)"> This package contains no sheets, so every volume will read “Unassigned”.</span>' : ''}
       </div>
     </div>`;
 }
 
 function setVolumeSource(pkgId) {
-  setPkgVolumeSourceId(pkgId || null);
-  renderSchedule();
-  const pkgName = S.project.packages.find(p => p.id === pkgId)?.name || 'Default';
-  const msg = pkgId 
-    ? `Volume source set to ${escHtml(pkgName)} — exports will use this package's Volume assignments.`
-    : `Volume source reset to default (latest package wins).`;
-  setAlert('status-bulk-alert', msg, 'info');
+  // Delegates to the same radio setter the header buttons use, so the two
+  // controls cannot drift apart.
+  selectPkgVolumeSource(pkgId);
 }
 
 function renderExportCols() {
@@ -3886,81 +3932,107 @@ function renderExportCols() {
     ${S._exportColsOpen ? `<div class="ecol-grid">${chips}</div>` : ''}`;
 }
 
-// NOTE: the old per-package export opt-out (pkgExportColId / isPkgInExport /
-// togglePkgExport) has been retired. Individual package columns are no longer
-// switched on and off independently — the range cursor below is the single
-// control, because "export through Pn" is the actual issue-set semantics and an
-// arbitrary on/off set could produce a gap (P0, P2 with no P1) that no real
-// document issue corresponds to. Any per-column toggling still lives in the
-// Export Columns panel for the non-package columns.
+// NOTE: the package export RANGE ("To Here" cursor: getPkgExportMaxIndex /
+// setPkgExportMaxIndex / isPkgInExportRange / selectPkgExportRange, and the
+// project field _pkgExportMaxIdx) has been REMOVED. It forced package columns to
+// be contiguous from P0, which meant an issue set like "P0 and P2 only" could
+// not be expressed at all. Inclusion is now per column: every column carries its
+// own on/off flag in exportCols, toggled either from its header button in the
+// grid or from the Export Columns panel — one flag, two surfaces, no second
+// source of truth. Any legacy _pkgExportMaxIdx left on a saved project is inert
+// and ignored.
 
-// ── Package export range (Level 6) ───────────────────────────────────
-// One cursor per project: the index of the FINAL package to export. Everything
-// from P0 up to and including it goes out; everything after it is withheld.
-// Selecting SHEET.INDEX.P2 therefore exports P0, P1, P2.
-// The default is the last package, so an untouched project exports every column
-// exactly as it did before this control existed. The value is clamped on read so
-// deleting packages in Level 4 can never leave a cursor pointing off the end.
-function getPkgExportMaxIndex() {
-  const n = S.project?.packages?.length || 0;
-  if (!n) return -1;
-  const stored = S.project._pkgExportMaxIdx;
-  if (!Number.isInteger(stored)) return n - 1;
-  return Math.max(0, Math.min(stored, n - 1));
+// ── Volume source package (Level 6) ──────────────────────────────────
+// EXACTLY ONE package supplies SHEET.INDEX.VOLUME for the whole export, always.
+// This is radio-button semantics, not a filter: there is no "none" state and no
+// blended fallback, because a per-sheet fallback is what produced volumes from
+// three different packages in a single file.
+//
+// Default when nothing has been chosen yet: the LAST package that actually
+// contains sheets. Rationale — the highest-numbered package is the most recent
+// issuance and so the best guess at "current" volumes, but defaulting to the
+// literal last package would land on an empty Bulletin-2 on most real projects
+// and report every sheet as Unassigned, which reads as a broken export rather
+// than an unmade choice. Falling back to the first package covers the
+// no-sheets-anywhere case.
+// The choice is INDEPENDENT of which package columns are included in the export:
+// sourcing volumes from P2 while exporting only P0's column is legal and does
+// what it says.
+function defaultVolumeSourcePkgId() {
+  const pkgs = S.project?.packages || [];
+  if (!pkgs.length) return null;
+  for (let i = pkgs.length - 1; i >= 0; i--) {
+    if (S.project.sheets.some(s => s.packageId === pkgs[i].id)) return pkgs[i].id;
+  }
+  return pkgs[0].id;
 }
 
-function setPkgExportMaxIndex(idx) {
-  if (!S.project) return;
-  S.project._pkgExportMaxIdx = idx;
-  saveDB();
-}
-
-// ── Volume source package selection (Level 6) ────────────────────────────
-// The selected package's Volume assignments are used for all sheets in the export.
-// When no explicit selection is made, the default "latest package wins" rule applies.
-// The selection is persisted on the project so it survives navigation.
+// Always returns a valid package id (or null only when the project has no
+// packages). A stored id pointing at a deleted package self-heals to the default.
 function getPkgVolumeSourceId() {
   if (!S.project) return null;
+  const pkgs = S.project.packages || [];
+  if (!pkgs.length) return null;
   const stored = S.project._volumeSourcePkgId;
-  // Validate that the stored package ID still exists
-  if (stored && S.project.packages.some(p => p.id === stored)) {
-    return stored;
-  }
-  // Invalid or missing selection: return null (will use default rule)
-  if (stored) {
-    S.project._volumeSourcePkgId = null;
-    saveDB();
-  }
-  return null;
+  if (stored && pkgs.some(p => p.id === stored)) return stored;
+  const fallback = defaultVolumeSourcePkgId();
+  if (stored !== fallback) { S.project._volumeSourcePkgId = fallback; saveDB(); }
+  return fallback;
 }
 
+// Radio select. A null/unknown id resolves to the default rather than clearing
+// the setting, so there is no code path that leaves the export without a source.
 function setPkgVolumeSourceId(pkgId) {
   if (!S.project) return;
-  // Validate that the package exists
-  if (pkgId && !S.project.packages.some(p => p.id === pkgId)) {
-    return;
-  }
-  S.project._volumeSourcePkgId = pkgId || null;
+  const pkgs = S.project.packages || [];
+  const valid = pkgId && pkgs.some(p => p.id === pkgId) ? pkgId : defaultVolumeSourcePkgId();
+  S.project._volumeSourcePkgId = valid;
   saveDB();
 }
 
-// Is this package column within the export range [0 … max]?
-function isPkgInExportRange(pkgIdx) {
-  const maxIdx = getPkgExportMaxIndex();
-  return maxIdx >= 0 && pkgIdx >= 0 && pkgIdx <= maxIdx;
+// Header button handler: pick this package as the single Volume source.
+// Clicking the already-selected package is a no-op, so the setting can never be
+// toggled off into an unset state.
+function selectPkgVolumeSource(pkgId) {
+  if (!S.project) return;
+  if (getPkgVolumeSourceId() === pkgId) return;
+  setPkgVolumeSourceId(pkgId);
+  renderSchedule();
+  const p = S.project.packages.find(x => x.id === pkgId);
+  setAlert('status-bulk-alert',
+    `SHEET.INDEX.VOLUME now reads from <strong>${escHtml(p?.pCode || p?.name || '')}</strong> only — ` +
+    `every sheet takes its volume from this package in all five formats. ` +
+    `Sheets not issued in it export as “Unassigned”.`, 'info');
 }
 
-// Choose the final package to export. Not a toggle — there is always exactly one
-// cursor, so the range can never be emptied by a stray second click.
-function selectPkgExportRange(pkgIdx) {
-  setPkgExportMaxIndex(pkgIdx);
+// ── Per-column export inclusion, from the grid header ────────────────
+// Writes the SAME exportCols flag as the Export Columns panel checkbox, so the
+// two controls can never disagree. Refuses to turn off the final enabled column
+// (an export with no columns is not a document).
+function toggleExportColFromHeader(colId) {
+  const cfg = ensureExportCols();
+  const c = cfg.find(x => x.id === colId);
+  if (!c) return;
+  if (c.on && cfg.filter(x => x.on).length <= 1) {
+    setAlert('status-bulk-alert', 'At least one export column must stay included.', 'danger');
+    return;
+  }
+  c.on = !c.on;
+  saveDB();
   renderSchedule();
-  const pkgs = S.project.packages.slice(0, pkgIdx + 1);
-  const last = pkgs[pkgs.length - 1];
+  const spec  = exportColumnSpec();
+  const label = (spec.find(s => s.id === colId) || {}).label || colId;
+  const n     = cfg.filter(x => x.on).length;
   setAlert('status-bulk-alert',
-    `Export range set through <strong>${escHtml(last?.pCode || last?.name || '')}</strong> — ` +
-    `${pkgs.length} package column${pkgs.length !== 1 ? 's' : ''} ` +
-    `(${escHtml(pkgs.map(p => p.pCode || p.name).join(', '))}) in every format.`, 'info');
+    `<strong>${escHtml(label)}</strong> ${c.on ? 'included in' : 'excluded from'} the export — ` +
+    `${n} column${n !== 1 ? 's' : ''} now exporting in all five formats.`, 'info');
+}
+
+// Is a column currently included? Used by the grid to dim excluded columns.
+function isExportColOn(colId) {
+  const cfg = ensureExportCols();
+  const c = cfg.find(x => x.id === colId);
+  return !!(c && c.on);
 }
 
 function toggleExportColsOpen() {
@@ -4157,7 +4229,8 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
               sheet. Both offer Select / + Add New Volume / Remove. A removed
               volume stays removed — it reads as "— none —" rather than reverting
               to the discipline default
-  6. Export — assign statuses, choose the export range, configure export columns,
+  6. Export — assign statuses, choose which columns are included, pick the
+              Volume source package, configure export columns,
               export to: XLSX, CSV, Revit tab-delimited (.txt), JSON, or browser
               Print/PDF. Every format is generated from one column configuration,
               so column visibility and left/right order apply identically to all
@@ -4183,19 +4256,23 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
               Print/PDF keep the grouped discipline subtotal layout, whose
               subtotal label now spans A–I with the per-package counts under
               J onward.
-              EXPORT RANGE: the "To Here" button on a package column header names
-              the FINAL package to export; every preceding package column goes
-              with it. Selecting Sheet.Index.P2 exports P0, P1, P2; selecting
-              Sheet.Index.P4 exports P0 through P4. Withheld columns are dimmed
-              and struck through in the preview, and the banner above the grid
-              names the included set. The range applies identically to all five
-              formats. It defaults to the last package, so an untouched project
-              exports every column. Volume is read-only in Level 6 — assign it in
-              Level 5.
-              VOLUME SOURCE: a dropdown selects which package's Level 5 Volume
-              assignments SHEET.INDEX.VOLUME is read from, so one package's
-              volumes are used for the whole export instead of being blended
-              across packages. See VOLUME SOURCE below
+              COLUMN INCLUSION: every column in the Level 6 grid carries an
+              "Export" button in its header — Sheet #, Sheet Name and each
+              package column. Green ✓ means the column is in the export, amber ○
+              means it is left out; an excluded column's header is struck through
+              and its data cells dim, though the status selectors stay usable
+              because the grid is still a working schedule. The button writes the
+              same flag as the checkbox in the Export Columns panel, so the two
+              surfaces can never disagree. Everything defaults to included, and
+              the last remaining column cannot be switched off. Because inclusion
+              is per column, a non-contiguous set (P0 and P2 with no P1) is now
+              expressible — the old "To Here" range cursor forced package columns
+              to run contiguously from P0 and has been removed.
+              VOLUME SOURCE: each package column header also carries a "Volume"
+              button. Exactly one package is selected at any time (radio, not
+              checkbox), and that package alone supplies SHEET.INDEX.VOLUME for
+              every sheet. Volume is read-only in Level 6 — assign it in Level 5.
+              See VOLUME SOURCE below
 
   VOLUME DATA MODEL
   Volume lives on the sheet as volumes[packageId], so the same sheet number can
@@ -4205,23 +4282,33 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
   SHEET.INDEX.VOLUME must resolve to a single value per sheet.
 
   VOLUME SOURCE (Level 6)
-  The "Volume Source for Export" dropdown names WHICH package's Level 5 Volume
-  assignments the export uses. Pick a package and every row's
-  SHEET.INDEX.VOLUME is read from that package alone — no blending, and no
-  value from any other package can appear. A sheet absent from the chosen
-  package, or explicitly unassigned ("" ) there, reads "Unassigned" rather than
-  inheriting a neighbouring package's volume; that is the point of the control,
-  since silent inheritance is what mixed the numbers up before.
-  Left at "Default (Latest Package Wins)" the original rule applies: the latest
-  package inside the export range that assigns a volume wins.
-  The selection is INDEPENDENT of the "To Here" export range — the range picks
-  which package COLUMNS are emitted, the Volume source picks which package's
-  volumes are read. Narrowing the range to P0 while sourcing volumes from P2 is
-  legal and does what it says.
-  It persists on the project as _volumeSourcePkgId, and self-heals to the
-  default if that package is later deleted in Level 4. The Level 6 grid groups
-  rows by the same resolved value, so the on-screen preview always matches the
-  exported file.
+  EXACTLY ONE package supplies SHEET.INDEX.VOLUME for the whole export, always.
+  Pick it with the "Volume" button on a package column header, or with the
+  "Volume Source for Export" dropdown — the two are views of the same radio
+  group. There is no "none" state and no blended mode: clicking the already
+  selected package is a no-op, so the setting cannot be toggled off.
+  Every row's volume is read from that package alone. A sheet absent from it, or
+  explicitly unassigned ("") there, reads "Unassigned" and does NOT inherit a
+  neighbouring package's volume.
+  WHY THERE IS NO "LATEST PACKAGE WINS" OPTION ANY MORE: that rule resolved each
+  sheet independently, so one export could take A-101's volume from P2, A-102's
+  from P1 and A-103's from P0 — purely because of which packages happened to
+  contain each sheet. It produced exactly the mixed-up column this control exists
+  to prevent, and as the untouched-project default it meant most exports still
+  mixed. The code path is deleted, not merely bypassed.
+  DEFAULT when nothing has been chosen: the LAST package that actually contains
+  sheets. The highest-numbered package is the most recent issuance and so the
+  best guess at current volumes, but defaulting to the literal last package would
+  land on an empty Bulletin-2 on most real projects and report every sheet as
+  Unassigned, which reads as a broken export rather than an unmade choice. If no
+  package has any sheets, the first package is used.
+  The choice is INDEPENDENT of column inclusion: sourcing volumes from P2 while
+  P2's own status column is excluded from the export is legal and does what it
+  says.
+  It persists on the project as _volumeSourcePkgId and self-heals to the default
+  if that package is later deleted in Level 4 — a stored id is never left
+  dangling. The Level 6 grid groups rows by the same resolved value, so the
+  on-screen preview always matches the exported file.
   Projects saved before package scoping are migrated on load: the old flat
   sheet.volumeNum is copied into volumes[packageId] and manual edits survive.
 
