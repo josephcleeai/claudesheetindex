@@ -899,6 +899,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <button class="btn btn-sm" onclick="printSchedule()">Print / PDF</button>
     </div>
     <div id="export-cols-panel" style="margin-bottom:18px"></div>
+    <div id="volume-source-panel" style="margin-bottom:18px"></div>
     <div id="issued-info-panel" style="margin-bottom:20px"></div>
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -1021,6 +1022,7 @@ let S = {
   _sheetSortDir: 'asc',      // Level 5 uploaded sheets: 'asc' | 'desc' by Discipline order, then Sheet #
   _exportColsOpen: false,    // Level 6: export column config controls expanded (session-only; the config itself persists on the project)
   _issuedInfoOpen: false,    // Level 6: per-sheet Issued Info editor expanded (session-only)
+  _volumeSourcePkgId: null,  // Level 6: selected package for Volume source in export (persisted on project)
   _editingProjectId: null    // Level 2: id of saved project currently loaded into the form for editing, or null when the form is in "create new" mode
 };
 
@@ -2728,12 +2730,25 @@ function addNewVolume() {
 
 // SHEET.INDEX.VOLUME for a deduplicated export/schedule row.
 // Volume is now per package, but exports emit one row per sheet NUMBER, so a
-// single value has to be chosen. This follows the project's established
+// single value has to be chosen. By default, this follows the project's established
 // "latest package wins" rule — the same rule already used for Sheet Name — and
 // only considers packages inside the current export range, so narrowing the
 // range to P2 reports the volume P2 assigned rather than one from a withheld
-// later package. Sheets with no assignment anywhere read as "Unassigned".
-function scheduleRowVolume(row) {
+// later package. If a specific sourcePackageId is provided (for Level 6 exports),
+// use ONLY that package's volume assignment instead. Sheets with no assignment
+// anywhere read as "Unassigned".
+function scheduleRowVolume(row, sourcePackageId) {
+  // If a specific source package is selected for export, use only that package's volume
+  if (sourcePackageId) {
+    const sheetId = row.pkgMap ? row.pkgMap[sourcePackageId] : null;
+    if (!sheetId) return 'Unassigned';
+    const rec = S.project.sheets.find(s => s.id === sheetId);
+    if (!rec) return 'Unassigned';
+    const vol = sheetEffectiveVolume(rec, sourcePackageId);
+    return vol || 'Unassigned';
+  }
+  
+  // Default: "latest package wins" rule across the export range
   const maxIdx = getPkgExportMaxIndex();
   const pkgs   = (S.project.packages || []).slice(0, maxIdx + 1);
   let winner = '';
@@ -2899,6 +2914,7 @@ function renderSchedule() {
   // Export settings render first and unconditionally — they are configuration,
   // not sheet data, so they stay usable on a project with no sheets yet.
   renderExportCols();
+  renderVolumeSource();
   renderIssuedInfo();
   const container = document.getElementById('schedule-container');
   const packages  = S.project.packages;
@@ -3033,6 +3049,10 @@ function renderSchedule() {
   const grandVolumes = {}; // volume → { total, pkg: {pkgId → count} }
   sortedPkgs.forEach(p => { grandPkg[p.id] = 0; });
 
+  // Resolved once per render, not per row: the Level 6 Volume source selection.
+  // null means "use the default latest-package-wins rule".
+  const previewVolumeSrc = getPkgVolumeSourceId();
+
   // ── Rows, grouped by discipline, then by volume ──────────────────
   groups.forEach(group => {
     html += `<div class="sched-blank-row"></div>`;
@@ -3048,9 +3068,13 @@ function renderSchedule() {
     // Cover Drawing Index or legacy "Not Apply", because volume is now per sheet
     // per package for all of them and scheduleRowVolume() resolves them all the
     // same way. Unassigned sorts last rather than being folded into a real volume.
+    // The Volume source selection is passed through so this grid — which is the
+    // on-screen export preview — groups by the SAME value the files will carry.
+    // Without it the preview kept showing "latest package wins" groupings while
+    // the exported SHEET.INDEX.VOLUME said something else.
     const volMap = new Map();
     group.rows.forEach(row => {
-      const vol = scheduleRowVolume(row);
+      const vol = scheduleRowVolume(row, previewVolumeSrc);
       if (!volMap.has(vol)) volMap.set(vol, []);
       volMap.get(vol).push(row);
     });
@@ -3499,6 +3523,8 @@ function buildExportModel() {
     const disc     = S.project.disciplines.find(d => d.prefix === r.discipline);
     const discVal  = disc ? `${disc.prefix}-${disc.name}` : (r.discipline || '');
     const discSort = disc ? `${disc.order}-${disc.name}` : '';
+    // Use the selected Volume source package if available; otherwise use default "latest package wins"
+    const volumeSourcePkgId = getPkgVolumeSourceId();
     const values = {
       sheetNum:       r.sheetNum,
       sheetName:      r.sheetName,
@@ -3508,7 +3534,7 @@ function buildExportModel() {
       // columns are deliberately identical in content and differ only in header,
       // so a consumer can map one string onto two Revit parameters.
       sheetCategory:  discSort,
-      volume:         scheduleRowVolume(r),
+      volume:         scheduleRowVolume(r, volumeSourcePkgId),
       workingPrinted: EXPORT_DEFAULT_WORKING,
       issuedName:     sheetIssuedField(r.sheetNum, 'issuedName'),
       issuedDate:     sheetIssuedField(r.sheetNum, 'issuedDate'),
@@ -3736,6 +3762,47 @@ function printSchedule() {
 // ================================================================
 // LEVEL 6 EXPORT — COLUMN CONFIG + ISSUED INFO PANELS
 // ================================================================
+function renderVolumeSource() {
+  const el = document.getElementById('volume-source-panel');
+  if (!el || !S.project) return;
+  
+  const packages = S.project.packages || [];
+  if (!packages.length) return;
+  
+  const selectedId = getPkgVolumeSourceId();
+  const options = [
+    `<option value="">Default (Latest Package Wins)</option>`,
+    ...packages.map(p => 
+      `<option value="${escHtml(p.id)}" ${p.id === selectedId ? 'selected' : ''}>
+        ${escHtml(p.pCode || `Sheet.Index.P${packages.indexOf(p)}`)} — ${escHtml(p.name)}
+      </option>`
+    )
+  ].join('');
+  
+  el.innerHTML = `
+    <div style="padding:12px;background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:18px">
+      <label class="form-label" style="margin-bottom:8px">Volume Source for Export</label>
+      <select id="volume-source-select" class="form-input" onchange="setVolumeSource(this.value);" style="font-size:13px">
+        ${options}
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">
+        ${selectedId 
+          ? `Sheets will use Volume assignments from the selected package.` 
+          : `Sheets will use the latest package's Volume assignments (across the export range).`}
+      </div>
+    </div>`;
+}
+
+function setVolumeSource(pkgId) {
+  setPkgVolumeSourceId(pkgId || null);
+  renderSchedule();
+  const pkgName = S.project.packages.find(p => p.id === pkgId)?.name || 'Default';
+  const msg = pkgId 
+    ? `Volume source set to ${escHtml(pkgName)} — exports will use this package's Volume assignments.`
+    : `Volume source reset to default (latest package wins).`;
+  setAlert('status-bulk-alert', msg, 'info');
+}
+
 function renderExportCols() {
   const el = document.getElementById('export-cols-panel');
   if (!el || !S.project) return;
@@ -3800,6 +3867,35 @@ function getPkgExportMaxIndex() {
 function setPkgExportMaxIndex(idx) {
   if (!S.project) return;
   S.project._pkgExportMaxIdx = idx;
+  saveDB();
+}
+
+// ── Volume source package selection (Level 6) ────────────────────────────
+// The selected package's Volume assignments are used for all sheets in the export.
+// When no explicit selection is made, the default "latest package wins" rule applies.
+// The selection is persisted on the project so it survives navigation.
+function getPkgVolumeSourceId() {
+  if (!S.project) return null;
+  const stored = S.project._volumeSourcePkgId;
+  // Validate that the stored package ID still exists
+  if (stored && S.project.packages.some(p => p.id === stored)) {
+    return stored;
+  }
+  // Invalid or missing selection: return null (will use default rule)
+  if (stored) {
+    S.project._volumeSourcePkgId = null;
+    saveDB();
+  }
+  return null;
+}
+
+function setPkgVolumeSourceId(pkgId) {
+  if (!S.project) return;
+  // Validate that the package exists
+  if (pkgId && !S.project.packages.some(p => p.id === pkgId)) {
+    return;
+  }
+  S.project._volumeSourcePkgId = pkgId || null;
   saveDB();
 }
 
@@ -4034,15 +4130,37 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
               names the included set. The range applies identically to all five
               formats. It defaults to the last package, so an untouched project
               exports every column. Volume is read-only in Level 6 — assign it in
-              Level 5
+              Level 5.
+              VOLUME SOURCE: a dropdown selects which package's Level 5 Volume
+              assignments SHEET.INDEX.VOLUME is read from, so one package's
+              volumes are used for the whole export instead of being blended
+              across packages. See VOLUME SOURCE below
 
   VOLUME DATA MODEL
   Volume lives on the sheet as volumes[packageId], so the same sheet number can
   sit in different volumes in different packages. A key stored as "" is an
   explicit unassignment and is preserved; only an ABSENT key falls back to the
   Level 3 discipline default. Exports emit one row per unique sheet number, so
-  SHEET.INDEX.VOLUME resolves a single value using the project's "latest package
-  wins" rule, considering only packages inside the current export range.
+  SHEET.INDEX.VOLUME must resolve to a single value per sheet.
+
+  VOLUME SOURCE (Level 6)
+  The "Volume Source for Export" dropdown names WHICH package's Level 5 Volume
+  assignments the export uses. Pick a package and every row's
+  SHEET.INDEX.VOLUME is read from that package alone — no blending, and no
+  value from any other package can appear. A sheet absent from the chosen
+  package, or explicitly unassigned ("" ) there, reads "Unassigned" rather than
+  inheriting a neighbouring package's volume; that is the point of the control,
+  since silent inheritance is what mixed the numbers up before.
+  Left at "Default (Latest Package Wins)" the original rule applies: the latest
+  package inside the export range that assigns a volume wins.
+  The selection is INDEPENDENT of the "To Here" export range — the range picks
+  which package COLUMNS are emitted, the Volume source picks which package's
+  volumes are read. Narrowing the range to P0 while sourcing volumes from P2 is
+  legal and does what it says.
+  It persists on the project as _volumeSourcePkgId, and self-heals to the
+  default if that package is later deleted in Level 4. The Level 6 grid groups
+  rows by the same resolved value, so the on-screen preview always matches the
+  exported file.
   Projects saved before package scoping are migrated on load: the old flat
   sheet.volumeNum is copied into volumes[packageId] and manual edits survive.
 
