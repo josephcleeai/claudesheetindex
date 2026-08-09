@@ -2477,6 +2477,23 @@ function renderFileList() {
     const naBadge = isNotApply
       ? `<span title="Volume is ${escHtml(VOLUME_NOT_APPLY)} — assign these sheets individually" style="margin-left:7px;font-size:10px;font-family:var(--mono);text-transform:none;letter-spacing:0;background:var(--amber-bg);color:var(--amber);border:1px solid #E8CFA4;border-radius:3px;padding:1px 5px;white-space:nowrap">manual</span>`
       : '';
+
+    // ── Section-level Discipline Sort Order dropdown ──────────────────
+    // Assigns the whole section's Discipline Sort Order for THIS package. This is
+    // how a manually added sheet — created with no discipline, so it lands in the
+    // "— unassigned —" section — gets classified. Selected reflects the current
+    // section; choosing a different value reassigns every sheet in the section.
+    // Scoped to the open package, mirroring the section Volume dropdown beside it.
+    const discSortOpts = [...S.project.disciplines]
+      .sort((a, b) => (parseInt(a.order) || 9999) - (parseInt(b.order) || 9999))
+      .map(d => `<option value="${escHtml(d.prefix)}"${d.prefix === key ? ' selected' : ''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`)
+      .join('');
+    const sectionDiscDropdown = `
+      <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="assignSectionDiscipline('${key}','${pkgId}',this.value)" title="Assign this Discipline Sort Order to every sheet in this section (this package). Use it to classify a manually added sheet.">
+        <option value=""${!key ? ' selected' : ''}>— assign —</option>
+        ${discSortOpts}
+      </select>`;
+
     bodyRows += `
           <tr class="rev-section">
             <td></td>
@@ -2486,7 +2503,11 @@ function renderFileList() {
                 ${sectionVolDropdown}
               </div>
             </td>
-            <td></td>
+            <td>
+              <div class="disc-cell" style="padding:0">
+                ${sectionDiscDropdown}
+              </div>
+            </td>
             <td></td>
           </tr>`;
     bodyRows += group.map(sheetRowHtml).join('');
@@ -2661,6 +2682,33 @@ function handleSectionVolumeChange(discPrefix, pkgId, value) {
     applyVolumeToDisciplineSection(pkgId, discPrefix, value);
   }
   renderFileList();
+}
+
+// Section-level Discipline Sort Order dropdown on a Discipline Sort Order header.
+// Assigns the chosen discipline to EVERY sheet currently in this section within
+// the open package. This is the path for a manually added sheet — created with no
+// discipline, so it starts in the "— unassigned —" section — to receive its
+// Discipline Sort Order. Scoped to the open package, matching the section Volume
+// dropdown beside it; sheets of the same number in OTHER packages are untouched,
+// which keeps this consistent with how volume is scoped per package. Choosing the
+// "— assign —" placeholder, or the section's own current value, is a no-op.
+function assignSectionDiscipline(oldPrefix, pkgId, newPrefix) {
+  if (!pkgId) { renderFileList(); return; }
+  if (newPrefix === '' || newPrefix === (oldPrefix || '')) { renderFileList(); return; }
+  const disc = S.project.disciplines.find(d => d.prefix === newPrefix);
+  if (!disc) { renderFileList(); return; }
+  let n = 0;
+  S.project.sheets.forEach(s => {
+    if (s.packageId === pkgId && (s.discipline || '') === (oldPrefix || '')) {
+      s.discipline = newPrefix;
+      s._autoDisc = false;   // now a manual assignment — drop the "auto" badge
+      n++;
+    }
+  });
+  if (n) { saveDB(); markDirty('upload'); }
+  renderFileList();
+  if (n) setAlert('upload-alert',
+    `Assigned ${n} sheet${n !== 1 ? 's' : ''} to ${escHtml(disc.order)}-${escHtml(disc.name)}.`, 'success');
 }
 
 function deleteSheet(id) {
