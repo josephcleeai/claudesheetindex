@@ -1124,12 +1124,19 @@ const FALLBACK_STATUS_SYMBOLS = {1:'1',2:'2',3:'3',4:'4',5:'5',6:'0'};
 
 // Volume options always offered in every volume dropdown (Level 3 and Level 5).
 // Additional volumes created via "Add New Volume" are appended to these.
-const DEFAULT_VOLUME_OPTIONS = ['Volume-1','Volume-2','Volume-3','Volume-4'];
+const DEFAULT_VOLUME_OPTIONS = ['Volume-1','Volume-2','Volume-3','Volume-4','Volume-5','Volume-6','Volume-7','Volume-8'];
 
 // Level 3 sentinel: a discipline set to "Not Apply" contributes no volume to its
 // sheets — those sheets are assigned manually from the Level 5 Volume dropdown.
 // It is a discipline-level setting only and never appears as a sheet volume.
 const VOLUME_NOT_APPLY = 'Not Apply';
+
+// Sentinel prefix for the "✕ Delete <Volume>" options in the Level 5 Volume
+// dropdown. The volume name is appended raw, so the parser must strip exactly
+// this prefix and nothing else — an earlier version also appended a trailing
+// "__" but stripped only the prefix, so every delete silently resolved to a
+// non-existent volume name ("Volume-9__") and deleted nothing.
+const VOL_DELETE_PREFIX = '__DELETE__';
 
 function statusSymbolFor(statusId) {
   if (statusId == null || statusId === '') return '';
@@ -2358,6 +2365,7 @@ function autoAssignAllDisciplines() {
 function renderFileList() {
   renderPkgTabs();
   ensureSheetVolumes(); // backfill each sheet's volume from its Level 3 discipline default
+  syncSharedCustomVolumes(); // make every in-use custom volume selectable in every package
   renderPkgVolumeSummary(); // per-volume sheet counts under the package tabs
   const pkgId = S._uploadPkgId || S.project?.packages[0]?.id;
   let sheets = S.project.sheets.filter(s => s.packageId === pkgId);
@@ -2465,13 +2473,23 @@ function renderFileList() {
     
     // Build section-level volume dropdown
     const pkgVols = getPackageVolumes(pkgId);
-    const sectionVolOpts = pkgVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+    // Separate default and custom volumes for display
+    const defaultVols = pkgVols.filter(v => isDefaultVolume(v));
+    const customVols = pkgVols.filter(v => !isDefaultVolume(v));
+    
+    // Build options for default and custom volumes
+    const defaultVolOpts = defaultVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+    const customVolOpts = customVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+    const customVolDeleteOpts = customVols.map(v => `<option value="${escHtml(VOL_DELETE_PREFIX + v)}">✕ Delete ${escHtml(v)}</option>`).join('');
+    
     const sectionVolDropdown = `
       <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="handleSectionVolumeChange('${key}','${pkgId}',this.value)" title="Apply this volume to every sheet in this section, for this package">
         <option value="" ${!sharedVol || groupVols.length > 1 ? 'selected' : ''}>— ${groupVols.length > 1 ? 'mixed' : 'select'} —</option>
-        ${sectionVolOpts}
+        ${defaultVolOpts}
+        ${customVolOpts ? `<optgroup label="Custom">${customVolOpts}</optgroup>` : ''}
         <option value="__ADD__">+ Add New Volume</option>
         ${sharedVol && groupVols.length === 1 ? `<option value="__REMOVE__">✕ Remove</option>` : ''}
+        ${customVolDeleteOpts ? `<optgroup label="Manage">${customVolDeleteOpts}</optgroup>` : ''}
       </select>`;
     
     const naBadge = isNotApply
@@ -2673,8 +2691,13 @@ function updateSheet(id, field, val) {
 // chosen volume to EVERY sheet of that discipline in the current package only.
 // The blank option is the "— select —/— mixed —" placeholder, so it is a no-op:
 // clearing a whole section is done with the explicit Remove option.
+// Delete operations are handled separately with cross-package validation.
 function handleSectionVolumeChange(discPrefix, pkgId, value) {
-  if (value === '__ADD__') {
+  // Handle volume deletion with cross-package warning
+  if (value && value.startsWith(VOL_DELETE_PREFIX)) {
+    const volumeName = value.slice(VOL_DELETE_PREFIX.length);
+    handleDeleteCustomVolume(volumeName, pkgId);
+  } else if (value === '__ADD__') {
     applyVolumeToDisciplineSection(pkgId, discPrefix, addNewVolume());
   } else if (value === '__REMOVE__') {
     applyVolumeToDisciplineSection(pkgId, discPrefix, '');
@@ -2682,6 +2705,98 @@ function handleSectionVolumeChange(discPrefix, pkgId, value) {
     applyVolumeToDisciplineSection(pkgId, discPrefix, value);
   }
   renderFileList();
+}
+
+// Handle deletion of a custom volume with cross-package validation
+function handleDeleteCustomVolume(volumeName, currentPkgId) {
+  // Prevent deletion of default volumes (should never happen but safe guard)
+  if (isDefaultVolume(volumeName)) {
+    setAlert('upload-alert', `Cannot delete default volume "${volumeName}".`, 'danger');
+    renderFileList();
+    return;
+  }
+  
+  // Find all packages using this volume
+  const affectedPkgIds = getPackagesUsingVolume(volumeName);
+  const affectedPkgs = affectedPkgIds
+    .map(id => S.project.packages.find(p => p.id === id))
+    .filter(p => p)
+    .map(p => p.name);
+  
+  // Build confirmation message
+  let msg = `Delete the custom volume "${volumeName}"?`;
+  if (affectedPkgs.length > 0) {
+    msg += `\n\nThis volume is used in ${affectedPkgs.length} package${affectedPkgs.length !== 1 ? 's' : ''}:\n• ${affectedPkgs.join('\n• ')}\n\nDeleting will remove this volume from all affected packages. Any sheets assigned to it will become Unassigned.`;
+  }
+  
+  showModal(
+    `Delete Custom Volume`,
+    msg,
+    [
+      {
+        label: `Delete "${volumeName}"`,
+        primary: true,
+        action: () => {
+          deleteCustomVolume(volumeName);
+          closeModal();
+          renderFileList();
+        }
+      },
+      {
+        label: 'Cancel',
+        action: () => {
+          closeModal();
+          renderFileList();
+        }
+      }
+    ]
+  );
+}
+
+// Remove a custom volume from the shared option list and from every package
+// assignment that referenced it. Defaults are rejected here as well as in the
+// caller, so no code path can drop Volume-1…Volume-8.
+//
+// Affected assignments are set to '' (explicit unassignment), NOT deleted.
+// Deleting the key would make sheetEffectiveVolume() fall back to the Level 3
+// discipline default, so a sheet the user had put in a custom volume would
+// silently reappear under Volume-1 — and ensureSheetVolumes() would then re-seed
+// that key on the next load, making the wrong value permanent. A stored '' is
+// the codebase's explicit "Unassigned" sentinel and survives the backfill.
+function deleteCustomVolume(volumeName) {
+  if (!S.project) return 0;
+  if (!volumeName || isDefaultVolume(volumeName)) return 0;
+
+  // Remove from the shared project-level option list
+  const vols = getProjectVolumes();
+  const idx = vols.indexOf(volumeName);
+  if (idx >= 0) vols.splice(idx, 1);
+
+  // Unassign every package-scoped assignment that referenced it
+  let affected = 0;
+  S.project.sheets.forEach(s => {
+    if (!s.volumes) return;
+    Object.keys(s.volumes).forEach(pkgId => {
+      if (s.volumes[pkgId] === volumeName) {
+        s.volumes[pkgId] = '';
+        affected++;
+      }
+    });
+    // Legacy flat field, if a pre-package-scoping project still carries it
+    if (s.volumeNum === volumeName) s.volumeNum = '';
+  });
+
+  // A Level 3 discipline seeded with this volume would re-introduce it on the
+  // next render, so clear that too.
+  (S.project.disciplines || []).forEach(d => {
+    if (d.volumeNum === volumeName) d.volumeNum = '';
+  });
+
+  saveDB();
+  setAlert('upload-alert',
+    `Deleted custom volume "${volumeName}". ${affected} sheet assignment${affected !== 1 ? 's' : ''} across all packages ${affected !== 1 ? 'are' : 'is'} now Unassigned.`,
+    'success');
+  return affected;
 }
 
 // Section-level Discipline Sort Order dropdown on a Discipline Sort Order header.
@@ -2755,6 +2870,55 @@ function allVolumeNames() {
   return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
+
+// Check if a volume is one of the default Volume-1 through Volume-8
+function isDefaultVolume(volumeName) {
+  return DEFAULT_VOLUME_OPTIONS.includes(volumeName);
+}
+
+// Promote every custom volume that is in use ANYWHERE on the project into the
+// shared project-level option list, so it appears in every package's dropdown.
+// Requirement 2 says a custom volume created in one package must be selectable
+// in all of them, and addNewVolume() already registers new ones. This pass
+// covers the values that never went through it: assignments made before shared
+// options existed, volumes typed into a Level 3 discipline, and anything left on
+// the legacy flat sheet.volumeNum. Idempotent, so it is safe to run per render.
+function syncSharedCustomVolumes() {
+  if (!S.project) return false;
+  const vols = getProjectVolumes();
+  const known = new Set(vols);
+  let changed = false;
+  const consider = v => {
+    if (!v || v === VOLUME_NOT_APPLY) return;
+    if (isDefaultVolume(v) || known.has(v)) return;
+    known.add(v);
+    vols.push(v);
+    changed = true;
+  };
+  (S.project.sheets || []).forEach(s => {
+    consider(s.volumeNum);
+    if (s.volumes) Object.values(s.volumes).forEach(consider);
+  });
+  (S.project.disciplines || []).forEach(d => consider(d.volumeNum));
+  if (changed) saveDB();
+  return changed;
+}
+
+// Check which packages use a specific volume across all sheets
+function getPackagesUsingVolume(volumeName) {
+  if (!S.project) return [];
+  const pkgSet = new Set();
+  S.project.sheets.forEach(s => {
+    if (s.volumes) {
+      for (const pkgId in s.volumes) {
+        if (s.volumes[pkgId] === volumeName) {
+          pkgSet.add(pkgId);
+        }
+      }
+    }
+  });
+  return Array.from(pkgSet);
+}
 
 function addNewVolume() {
   const vols = getProjectVolumes();
@@ -2904,21 +3068,38 @@ function ensureSheetVolumes() {
 }
 
 // ── Package-scoped volume functions (Level 5 & 6) ───────────────────
-// Get all volume names used in a specific package across all sheets
+// Get all volume names used in a specific package across all sheets.
+// Returns a combined set including:
+// 1. Default volumes (Volume-1 through Volume-8)
+// 2. Custom volumes stored at project level
+// 3. Any volumes actually assigned to sheets in this package
+// 4. Discipline default volumes
+// This ensures custom volumes are available in all packages' dropdowns.
 function getPackageVolumes(pkgId) {
   if (!pkgId || !S.project) return [];
   const set = new Set(DEFAULT_VOLUME_OPTIONS);
+  
+  // Add custom volumes from project-level list (shared across all packages)
+  getProjectVolumes().forEach(v => {
+    if (v && !isDefaultVolume(v)) {
+      set.add(v);
+    }
+  });
+  
+  // Add volumes actually used on sheets in this package
   S.project.sheets.forEach(s => {
     if (s.packageId === pkgId && s.volumes && s.volumes[pkgId]) {
       set.add(s.volumes[pkgId]);
     }
   });
+  
   // Also add discipline defaults so user can select them
   S.project.disciplines?.forEach(d => {
     if (d.volumeNum && d.volumeNum !== VOLUME_NOT_APPLY) {
       set.add(d.volumeNum);
     }
   });
+  
   set.delete(VOLUME_NOT_APPLY);
   return [...set].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
