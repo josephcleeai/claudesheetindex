@@ -3974,9 +3974,16 @@ function exportXLSX() {
     return Number.isFinite(n) ? n : sym;
   };
 
-  const aoa = [cols.map(c => c.label)];
+  // Every exported value is uppercased, matching what CSV and Print already do.
+  // Package columns are the one exclusion, and not on casing grounds: their cells
+  // carry status symbols that statusCell() returns as a Number so the sheet gets
+  // numFmt '0' and a numeric cell type. Passing those through a string uppercase
+  // would coerce them back to text, changing the cell type DiRoots reads.
+  const up = v => (v == null ? '' : String(v).toUpperCase());
+
+  const aoa = [cols.map(c => up(c.label))];
   rows.forEach(r => {
-    aoa.push(cols.map(c => (c.kind === 'pkg' ? statusCell(r.values[c.id]) : r.values[c.id])));
+    aoa.push(cols.map(c => (c.kind === 'pkg' ? statusCell(r.values[c.id]) : up(r.values[c.id]))));
   });
 
   const ws    = XLSX.utils.aoa_to_sheet(aoa);
