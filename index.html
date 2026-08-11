@@ -1138,6 +1138,24 @@ const VOLUME_NOT_APPLY = 'Not Apply';
 // non-existent volume name ("Volume-9__") and deleted nothing.
 const VOL_DELETE_PREFIX = '__DELETE__';
 
+// Display-only uppercase for dropdown labels. Stored data is NOT touched — the
+// <option value> keeps the raw string, so assignment, sorting, Level 3 ↔ Level 5
+// sync, delete parsing and export all continue to compare exact stored values.
+// The transform is baked into the option TEXT rather than done with CSS
+// `text-transform:uppercase` because browsers render the native option popup
+// list with platform widgets and do not reliably apply text-transform to it —
+// CSS would uppercase the closed select only, leaving the open list mixed-case.
+function dispUpper(v) { return String(v == null ? '' : v).toUpperCase(); }
+
+// Volume display for the Level 5 rollups (the per-package chips under the
+// package tabs and the Volume Totals rows). Real volume names show uppercase to
+// match the dropdowns; the no-volume bucket keeps its sentence-case 'Unassigned'
+// label, because it is a status rather than a volume name — the same reason it
+// already gets the amber pvs-chip-unassigned treatment and sorts last. The
+// literal is compared directly, matching the existing checks in
+// volumeCountsForPackage() and renderPkgVolumeSummary().
+function dispVolume(v) { return v === 'Unassigned' ? v : dispUpper(v); }
+
 function statusSymbolFor(statusId) {
   if (statusId == null || statusId === '') return '';
   const st = S.project?.statuses?.find(x => x.id === statusId);
@@ -2064,7 +2082,7 @@ function renderPkgVolumeSummary() {
   const total = pairs.reduce((sum, p) => sum + p.n, 0);
   const chips = pairs.map(({ vol, n }) =>
     `<span class="pvs-chip${vol === 'Unassigned' ? ' pvs-chip-unassigned' : ''}">
-       <span class="pvs-vol">${escHtml(vol)}</span> = <span class="pvs-num">${n}</span> sheet${n !== 1 ? 's' : ''}
+       <span class="pvs-vol">${escHtml(dispVolume(vol))}</span> = <span class="pvs-num">${n}</span> sheet${n !== 1 ? 's' : ''}
      </span>`
   ).join('');
   el.innerHTML = `<span class="pvs-pkg">${escHtml(pkg.name)}:</span>${chips}<span class="pvs-total">Total = ${total} sheet${total !== 1 ? 's' : ''}</span>`;
@@ -2478,9 +2496,12 @@ function renderFileList() {
     const customVols = pkgVols.filter(v => !isDefaultVolume(v));
     
     // Build options for default and custom volumes
-    const defaultVolOpts = defaultVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
-    const customVolOpts = customVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
-    const customVolDeleteOpts = customVols.map(v => `<option value="${escHtml(VOL_DELETE_PREFIX + v)}">✕ Delete ${escHtml(v)}</option>`).join('');
+    // Option LABELS are uppercased for display (dispUpper); option VALUES stay
+    // raw so `v === sharedVol`, applyVolumeToDisciplineSection() and the
+    // VOL_DELETE_PREFIX parser keep matching the stored volume names exactly.
+    const defaultVolOpts = defaultVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(dispUpper(v))}</option>`).join('');
+    const customVolOpts = customVols.map(v => `<option value="${escHtml(v)}" ${v === sharedVol ? 'selected' : ''}>${escHtml(dispUpper(v))}</option>`).join('');
+    const customVolDeleteOpts = customVols.map(v => `<option value="${escHtml(VOL_DELETE_PREFIX + v)}">✕ Delete ${escHtml(dispUpper(v))}</option>`).join('');
     
     const sectionVolDropdown = `
       <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="handleSectionVolumeChange('${key}','${pkgId}',this.value)" title="Apply this volume to every sheet in this section, for this package">
@@ -2502,9 +2523,13 @@ function renderFileList() {
     // "— unassigned —" section — gets classified. Selected reflects the current
     // section; choosing a different value reassigns every sheet in the section.
     // Scoped to the open package, mirroring the section Volume dropdown beside it.
+    // Labels are uppercased so they read identically to the derived Disciplines
+    // Sort Order cell in Level 3, which is also uppercase display-only; the
+    // option value stays the raw prefix, which is what assignSectionDiscipline()
+    // looks up, so Level 3 ↔ Level 5 sync is unchanged.
     const discSortOpts = [...S.project.disciplines]
       .sort((a, b) => (parseInt(a.order) || 9999) - (parseInt(b.order) || 9999))
-      .map(d => `<option value="${escHtml(d.prefix)}"${d.prefix === key ? ' selected' : ''}>${escHtml(d.order)}-${escHtml(d.name)}</option>`)
+      .map(d => `<option value="${escHtml(d.prefix)}"${d.prefix === key ? ' selected' : ''}>${escHtml(dispUpper(`${d.order}-${d.name}`))}</option>`)
       .join('');
     const sectionDiscDropdown = `
       <select class="form-input" style="width:100%;padding:4px 6px;font-size:12px" onchange="assignSectionDiscipline('${key}','${pkgId}',this.value)" title="Assign this Discipline Sort Order to every sheet in this section (this package). Use it to classify a manually added sheet.">
@@ -2566,7 +2591,7 @@ function renderFileList() {
             <td></td>
             <td></td>
             <td class="rev-count">${n} sheet${n !== 1 ? 's' : ''}</td>
-            <td class="rev-volname">${escHtml(vol)}</td>
+            <td class="rev-volname">${escHtml(dispVolume(vol))}</td>
             <td></td>
             <td></td>
           </tr>`;
