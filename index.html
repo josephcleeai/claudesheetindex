@@ -286,9 +286,11 @@ select.form-input{cursor:pointer}
 
 /* Login screen */
 #view-login{background:var(--bg)}
+/* Top-aligned rather than vertically centred: with several accounts listed
+   this column can exceed the viewport, and a centred flex column clips its own
+   overflow at the top edge where the scroll container cannot reach it. */
 .login-wrap{
-  max-width:380px;margin:0 auto;padding:0 20px;
-  display:flex;flex-direction:column;justify-content:center;min-height:100vh;
+  max-width:400px;margin:0 auto;padding:56px 20px 64px;width:100%;
 }
 .login-logo{
   font-family:var(--display);font-size:22px;font-weight:700;
@@ -590,6 +592,41 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .issued-num{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .issued-row .issued-input{width:100%}
 .issued-empty{margin-top:10px;font-size:12px;color:var(--text3);font-style:italic}
+
+/* ── LEVEL 1: ACCOUNTS ON THIS COMPUTER ──────────────────────────────
+   A profile-picker style list of the accounts saved in this browser. Each row
+   is a button that pre-fills the email; the password is always still required,
+   which is what keeps two people on one machine separated. */
+#acct-list-wrap{margin-top:30px;padding-top:22px;border-top:1px solid var(--border)}
+.acct-head{
+  font-size:10px;font-weight:600;color:var(--text3);font-family:var(--display);
+  text-transform:uppercase;letter-spacing:0.6px;margin-bottom:9px;
+}
+.acct-row{
+  width:100%;text-align:left;display:grid;
+  grid-template-columns:1fr auto;grid-template-areas:"name count" "email count";
+  column-gap:10px;align-items:center;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:8px 11px;margin-bottom:6px;cursor:pointer;transition:all .12s;
+  font-family:var(--sans);color:var(--text);
+}
+.acct-row:hover{border-color:var(--accent);background:var(--accent-light)}
+.acct-row:active{transform:scale(0.995)}
+.acct-name{
+  grid-area:name;font-size:12.5px;font-weight:600;font-family:var(--display);
+  letter-spacing:-0.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.acct-email{
+  grid-area:email;font-size:10.5px;color:var(--text3);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.acct-count{
+  grid-area:count;font-size:10px;color:var(--text2);font-family:var(--mono);
+  background:var(--surface2);border:1px solid var(--border);border-radius:20px;
+  padding:3px 8px;white-space:nowrap;flex-shrink:0;
+}
+.acct-row:hover .acct-count{background:var(--surface);border-color:var(--border2)}
+.acct-note{font-size:10.5px;color:var(--text3);line-height:1.45;margin-top:8px;font-family:var(--mono)}
 </style>
 </head>
 <body>
@@ -662,6 +699,16 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <a href="#" onclick="showRegister()" style="color:var(--text2);text-decoration:none">Create account</a>
         &nbsp;·&nbsp;
         <a href="#" onclick="showRecover()" style="color:var(--text2);text-decoration:none">Forgot password?</a>
+      </div>
+
+      <!-- Accounts already saved in this browser. Populated by
+           renderAccountList(); hidden when the demo seed is the only one.
+           Picking a row fills in the email — it never signs anyone in. -->
+      <div id="acct-list-wrap" style="display:none">
+        <div class="acct-head">Accounts On This Computer</div>
+        <div id="acct-list"></div>
+        <div class="acct-note">Each account keeps its own projects, packages and sheets.
+          Sign in with that account's password to open its work.</div>
       </div>
     </div>
     <div id="form-register" style="display:none">
@@ -1238,12 +1285,27 @@ function tryLogout() {
 }
 
 function doLogout() {
+  // Every field here is scoped to one account's data. Anything left behind
+  // becomes a pointer into the previous account's projects once the next
+  // person signs in, so the whole per-account slice of S is reset — not just
+  // user and project.
   S.user = null; S.project = null; S.dirty = {};
+  S._editingProjectId = null;
+  S._uploadPkgId = null;
+  S._selectedSheets = new Set();
+  S._schedSel = new Set();
+  S._volumeSourcePkgId = null;
+  S._exportColsOpen = false;
+  S._issuedInfoOpen = false;
+  S.pendingNav = null;
   document.querySelectorAll('.nav-item').forEach(n => {
     if (n.dataset.step !== 'login') n.classList.add('locked');
   });
   document.getElementById('project-info').style.display = 'none';
   updateActiveProjPills();
+  // Level 1 is about to be shown again, and this session may have added an
+  // account or changed a project count.
+  showLogin();
   goTo('login');
 }
 
@@ -1297,6 +1359,136 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 });
 
 // ================================================================
+// ACCOUNTS — LEVEL 1
+// ================================================================
+/*
+  MULTIPLE ACCOUNTS, ONE COMPUTER
+  ───────────────────────────────
+  Any number of accounts can live in this browser. DB.users holds them all and
+  every project carries an ownerId, so each account's projects, disciplines,
+  packages, sheets, volumes and export settings are saved and updated entirely
+  separately. Signing out and signing in as someone else switches datasets;
+  nothing is shared and nothing is merged.
+
+  Two invariants make that hold, and both are enforced through the helpers
+  below rather than at each call site — a lookup that forgets the rule is how
+  isolation leaks:
+
+    IDENTITY   One account per email address, compared case-insensitively.
+               "Jane@Firm.com" and "jane@firm.com" are the same person, so the
+               second one cannot register.
+
+    OWNERSHIP  A project is only ever reachable by the account that owns it.
+               findOwnedProject() is the ONLY way to resolve a project id, so
+               a stale id, a leftover editing pointer, or a hand-typed call
+               cannot read, rename or delete another account's work.
+*/
+
+// Email is the account's identity, so it is normalised once, here, and stored
+// normalised. Comparing raw input would let case variants become separate
+// accounts sharing one real mailbox.
+function normalizeEmail(v) {
+  return String(v ?? '').trim().toLowerCase();
+}
+// Resolves an address to an account: EXACT match first, then case-insensitive.
+//
+// The two-step order matters for legacy data. Datasets created before email
+// became a case-insensitive identity can already hold two accounts differing
+// only by case, each with real project work. Rewriting either address to a
+// common lower-case form would make one of them permanently unreachable while
+// its projects sat in storage — data loss in everything but name. Honouring
+// the exact address keeps BOTH signable-in.
+//
+// Going forward this is unreachable: registration normalises the address and
+// rejects any case-insensitive collision, so no new pair can be created.
+function findUserByEmail(email) {
+  const raw = String(email ?? '').trim();
+  const lower = raw.toLowerCase();
+  return DB.users.find(u => String(u.email ?? '').trim() === raw)
+      || DB.users.find(u => normalizeEmail(u.email) === lower)
+      || null;
+}
+
+// Every project belonging to the signed-in account, in the user's manual
+// order. The single definition of "my projects".
+function ownedProjects(userId) {
+  const owner = userId || (S.user && S.user.id);
+  if (!owner) return [];
+  return DB.projects
+    .filter(p => p.ownerId === owner)
+    .sort((a, b) => (a.order ?? a.created ?? 0) - (b.order ?? b.created ?? 0));
+}
+
+// The ONLY sanctioned way to turn a project id into a project. Returns null
+// when nobody is signed in, when the id does not exist, or when it belongs to
+// a different account — so callers get "not found" rather than someone else's
+// data. Never replace this with a bare DB.projects.find(x => x.id === id).
+function findOwnedProject(id) {
+  if (!S.user || !id) return null;
+  return DB.projects.find(p => p.id === id && p.ownerId === S.user.id) || null;
+}
+
+// How many projects each account on this computer has, for the Level 1 list.
+function accountsOnThisComputer() {
+  return DB.users
+    .map(u => ({
+      id: u.id,
+      name: u.name || u.email,
+      email: u.email,
+      projects: DB.projects.filter(p => p.ownerId === u.id).length,
+      created: u.created || 0
+    }))
+    .sort((a, b) => a.created - b.created);
+}
+
+// Level 1 shows which accounts already exist in this browser, because
+// otherwise a second person has no way to discover that switching accounts is
+// possible — and a returning user has no reminder of which email they used.
+// Names and emails only: no password material, and no project details.
+function renderAccountList() {
+  const wrap = document.getElementById('acct-list-wrap');
+  const list = document.getElementById('acct-list');
+  if (!wrap || !list) return;
+  // The list belongs to the sign-in form only — it would be noise beside the
+  // create-account and password-recovery forms.
+  const loginForm = document.getElementById('form-login');
+  if (loginForm && loginForm.style.display === 'none') {
+    wrap.style.display = 'none';
+    return;
+  }
+  const accts = accountsOnThisComputer();
+  // Nothing useful to show when the only account is the untouched demo seed.
+  if (accts.length <= 1 && accts.every(a => a.id === 'demo' && !a.projects)) {
+    wrap.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  wrap.style.display = '';
+  list.innerHTML = accts.map(a => {
+    const n = a.projects;
+    return `<button type="button" class="acct-row" onclick="useAccount('${escHtml(a.id)}')"
+      title="Fill the sign-in form with ${escHtml(a.email)}">
+      <span class="acct-name">${escHtml(a.name)}</span>
+      <span class="acct-email">${escHtml(a.email)}</span>
+      <span class="acct-count">${n} project${n === 1 ? '' : 's'}</span>
+    </button>`;
+  }).join('');
+}
+
+// Picking an account only pre-fills the email and focuses the password box.
+// It never signs anyone in — each account still needs its own password, which
+// is what keeps two people sharing a computer separated.
+function useAccount(id) {
+  const u = DB.users.find(x => x.id === id);
+  if (!u) return;
+  showLogin();
+  const emailEl = document.getElementById('li-email');
+  const passEl = document.getElementById('li-pass');
+  if (emailEl) emailEl.value = u.email;
+  if (passEl) { passEl.value = ''; passEl.focus(); }
+}
+
+// ================================================================
 // AUTH — LEVEL 1
 // ================================================================
 function showLogin() {
@@ -1304,37 +1496,52 @@ function showLogin() {
   document.getElementById('form-register').style.display = 'none';
   document.getElementById('form-recover').style.display = 'none';
   setAlert('login-alert', '');
+  renderAccountList();
 }
 function showRegister() {
   document.getElementById('form-login').style.display = 'none';
   document.getElementById('form-register').style.display = '';
   document.getElementById('form-recover').style.display = 'none';
   setAlert('login-alert', '');
+  renderAccountList();
 }
 function showRecover() {
   document.getElementById('form-login').style.display = 'none';
   document.getElementById('form-register').style.display = 'none';
   document.getElementById('form-recover').style.display = '';
   setAlert('login-alert', '');
+  renderAccountList();
 }
 
 function doLogin() {
+  // Passed to findUserByEmail RAW (trimmed only). Normalising here would strip
+  // the case that its exact-match step needs to tell two legacy case-variant
+  // accounts apart; the case-insensitive fallback inside still handles every
+  // ordinary sign-in.
   const email = document.getElementById('li-email').value.trim();
   const pass = document.getElementById('li-pass').value;
-  if (!email || !pass) { setAlert('login-alert', 'Please enter email and password.', 'danger'); return; }
-  const user = DB.users.find(u => u.email === email && u.pass === pass);
-  if (!user) { setAlert('login-alert', 'Incorrect email or password.', 'danger'); return; }
+  if (!normalizeEmail(email) || !pass) { setAlert('login-alert', 'Please enter email and password.', 'danger'); return; }
+  // Identity is matched case-insensitively; the password still has to be exact.
+  const user = findUserByEmail(email);
+  if (!user || user.pass !== pass) { setAlert('login-alert', 'Incorrect email or password.', 'danger'); return; }
   S.user = user;
   postLogin();
 }
 
 function doRegister() {
   const name = document.getElementById('reg-name').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
+  const email = normalizeEmail(document.getElementById('reg-email').value);
   const pass = document.getElementById('reg-pass').value;
   if (!name || !email || !pass) { setAlert('login-alert', 'All fields required.', 'danger'); return; }
   if (pass.length < 8) { setAlert('login-alert', 'Password must be at least 8 characters.', 'danger'); return; }
-  if (DB.users.find(u => u.email === email)) { setAlert('login-alert', 'Email already registered.', 'danger'); return; }
+  // One account per email address. Checked case-insensitively, so a case
+  // variant of an existing address cannot open a second account against the
+  // same real mailbox.
+  const existing = findUserByEmail(email);
+  if (existing) {
+    setAlert('login-alert', `An account already exists for ${escHtml(existing.email)}. Sign in instead, or use a different email address.`, 'danger');
+    return;
+  }
   const user = {id:uid(), name, email, pass, created:Date.now()};
   DB.users.push(user); saveDB();
   S.user = user;
@@ -1342,9 +1549,9 @@ function doRegister() {
 }
 
 function doRecover() {
-  const email = document.getElementById('rec-email').value.trim();
-  if (!email) { setAlert('login-alert', 'Enter your account email.', 'danger'); return; }
-  const user = DB.users.find(u => u.email === email);
+  const email = document.getElementById('rec-email').value.trim();   // raw: see doLogin
+  if (!normalizeEmail(email)) { setAlert('login-alert', 'Enter your account email.', 'danger'); return; }
+  const user = findUserByEmail(email);
   if (!user) { setAlert('login-alert', 'No account found with that email.', 'danger'); return; }
   setAlert('login-alert', `Reset link sent to ${email}. (Demo: password is "${user.pass}")`, 'info');
   showLogin();
@@ -1471,10 +1678,14 @@ function _readProjectForm(excludeId) {
   if (!name) { setAlert('proj-alert', 'Project name is required.', 'danger'); return null; }
   if (!num) { setAlert('proj-alert', 'Project number is required.', 'danger'); return null; }
   if (num.length > 14) { setAlert('proj-alert', 'Project number must be 14 characters or less.', 'danger'); return null; }
-  const dup = DB.projects.find(p => p.num === num && p.id !== excludeId);
+  // Uniqueness is per ACCOUNT, not per browser. Two people sharing a computer
+  // keep independent numbering; blocking B because A used a number would both
+  // be wrong and unexplainable, since B cannot see A's projects to find the
+  // clash.
+  const dup = ownedProjects().find(p => p.num === num && p.id !== excludeId);
   if (dup) {
     showModal('Duplicate Project Number',
-      `Project number "${escHtml(num)}" is already in use. Please use a different number.`,
+      `Project number "${escHtml(num)}" is already used by one of your projects ("${escHtml(dup.name)}"). Please use a different number.`,
       [{label:'OK', primary:true, action:closeModal}]);
     return null;
   }
@@ -1565,7 +1776,7 @@ function saveProject(silent) {
 // the active project and WITHOUT navigating away from Level 2. Pairs with
 // saveProjectEdits() / cancelEditProject().
 function editProject(id) {
-  const p = DB.projects.find(x => x.id === id);
+  const p = findOwnedProject(id);   // owner-scoped: never another account's project
   if (!p) return;
   S._editingProjectId = id;
   document.getElementById('proj-name').value = p.name || '';
@@ -1587,7 +1798,9 @@ function editProject(id) {
 // (identified by S._editingProjectId), then returns the form to "create new".
 function saveProjectEdits() {
   const id = S._editingProjectId;
-  const p = DB.projects.find(x => x.id === id);
+  // Owner-scoped, so a stale editing pointer left over from another account
+  // resolves to nothing and the form resets instead of writing across accounts.
+  const p = findOwnedProject(id);
   if (!p) { cancelEditProject(); return; }
   const fields = _readProjectForm(id);
   if (!fields) return;
@@ -1618,9 +1831,7 @@ function cancelEditProject() {
 // dir: -1 to move up, +1 to move down.
 function moveProject(id, dir) {
   if (!S.user) return;
-  const owned = DB.projects
-    .filter(p => p.ownerId === S.user.id)
-    .sort((a, b) => (a.order ?? a.created ?? 0) - (b.order ?? b.created ?? 0));
+  const owned = ownedProjects();
   const i = owned.findIndex(p => p.id === id);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= owned.length) return;
@@ -1638,9 +1849,7 @@ function renderSavedProjects() {
   const list = document.getElementById('saved-projects-list');
   const empty = document.getElementById('saved-projects-empty');
   if (!list) return;
-  const userProjects = DB.projects
-    .filter(p => p.ownerId === S.user.id)
-    .sort((a, b) => (a.order ?? a.created ?? 0) - (b.order ?? b.created ?? 0));
+  const userProjects = ownedProjects();
   if (!userProjects.length) {
     list.innerHTML = '';
     if (empty) empty.style.display = '';
@@ -1666,7 +1875,7 @@ function renderSavedProjects() {
 }
 
 function loadProject(id) {
-  const p = DB.projects.find(x => x.id === id);
+  const p = findOwnedProject(id);   // owner-scoped: never another account's project
   if (!p) return;
   const cur = document.querySelector('.view.active');
   const curStep = cur ? cur.id.replace('view-','') : '';
@@ -1704,29 +1913,42 @@ function loadProject(id) {
   doLoad();
 }
 
+// Performs the actual removal. Ownership is re-verified HERE, at the moment of
+// deletion, rather than trusted from the id captured when the confirmation was
+// opened — this is not redundant with confirmDeleteProject's guard, because the
+// modal can sit open across a sign-out or an account switch, and this is the
+// function that actually mutates DB. Filters by object identity, so there is no
+// id-collision path either. Returns true if a project was removed.
+function deleteOwnedProject(id) {
+  const p = findOwnedProject(id);
+  if (!p) return false;
+  DB.projects = DB.projects.filter(x => x !== p);
+  if (S.project && S.project.id === id) {
+    S.project = null;
+    initProject();
+    document.getElementById('proj-badge').textContent = S.user ? S.user.email : '';
+    updateActiveProjPills();
+    document.querySelectorAll('.nav-item[data-step]').forEach(n => {
+      if (!['login','project'].includes(n.dataset.step)) n.classList.add('locked');
+    });
+  } else if (S._editingProjectId === id) {
+    initProject();
+  }
+  saveDB();
+  renderSavedProjects();
+  return true;
+}
+
 function confirmDeleteProject(id) {
-  const p = DB.projects.find(x => x.id === id);
+  const p = findOwnedProject(id);   // owner-scoped: never another account's project
   if (!p) return;
   showModal('Delete Project',
     `Delete "${p.num} — ${p.name}"? This cannot be undone.`,
     [
       {label:'Delete', primary:false, action:()=>{
-        DB.projects = DB.projects.filter(x => x.id !== id);
-        if (S.project && S.project.id === id) {
-          S.project = null;
-          initProject();
-          document.getElementById('proj-badge').textContent = S.user ? S.user.email : '';
-          updateActiveProjPills();
-          document.querySelectorAll('.nav-item[data-step]').forEach(n => {
-            if (!['login','project'].includes(n.dataset.step)) n.classList.add('locked');
-          });
-        } else if (S._editingProjectId === id) {
-          initProject();
-        }
-        saveDB();
-        renderSavedProjects();
+        const removed = deleteOwnedProject(id);
         closeModal();
-        setAlert('proj-alert', 'Project deleted.', 'info');
+        setAlert('proj-alert', removed ? 'Project deleted.' : 'That project is no longer available.', removed ? 'info' : 'danger');
       }},
       {label:'Cancel', action:closeModal}
     ]);
@@ -4505,6 +4727,10 @@ if (!DB.users.length) {
 // Show the most recent update time (from this or a previous session) on load.
 renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
+// Paint the accounts-on-this-computer picker. Last, so it sees the seeded and
+// fully migrated user list.
+renderAccountList();
+
 /*
   README
   ──────
@@ -4513,7 +4739,39 @@ renderLastUpdated(localStorage.getItem('si_last_update_ms'));
 
   SETUP
   Open index.html in any modern browser. No server required.
-  Data is persisted to browser localStorage.
+  Data is persisted to browser localStorage. There is no cloud storage, no
+  server and no network dependency — everything stays on this computer.
+
+  ACCOUNTS
+  Any number of accounts can be saved in this browser, and each one's data is
+  kept and updated entirely separately. Every project carries an ownerId, so an
+  account only ever sees, edits, exports or deletes its own projects,
+  disciplines, packages, sheets, volumes and export settings. Sign out and sign
+  in as someone else to switch datasets; nothing is shared or merged.
+
+  Two rules are enforced centrally rather than at each call site, because a
+  lookup that forgets the rule is exactly how isolation leaks:
+
+    IDENTITY   One account per email address, compared case-insensitively via
+               normalizeEmail() / findUserByEmail(). "Jane@Firm.com" and
+               "jane@firm.com" are the same account, so the second cannot
+               register. Stored addresses are lower-cased.
+
+    OWNERSHIP  findOwnedProject(id) is the ONLY sanctioned way to resolve a
+               project id. It returns null for an id that does not exist OR
+               belongs to another account. Do not replace it with a bare
+               DB.projects.find(x => x.id === id) — that reintroduces
+               cross-account reads, renames and deletes.
+
+  Project NUMBER uniqueness is per account, not per browser: two people sharing
+  a computer number their projects independently.
+
+  Level 1 lists the accounts saved in this browser with their project counts.
+  Selecting one pre-fills the email only — the account's own password is always
+  still required, which is what separates two people on one machine. Passwords
+  are stored in plain text in localStorage (demo-grade auth); treat this as
+  convenience separation, not a security boundary against someone with access
+  to the machine or its browser profile.
 
   DEMO CREDENTIALS
   Email:    demo@firm.com
