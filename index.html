@@ -627,6 +627,40 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 }
 .acct-row:hover .acct-count{background:var(--surface);border-color:var(--border2)}
 .acct-note{font-size:10.5px;color:var(--text3);line-height:1.45;margin-top:8px;font-family:var(--mono)}
+
+/* ── LEVEL 2: DATA BACKUP ────────────────────────────────────────────
+   Sits under Saved Projects. The warning strip only appears when project data
+   has changed since the last backup, so it stays quiet during normal work. */
+#backup-wrap{margin-top:26px;padding-top:20px;border-top:1px solid var(--border)}
+.bk-head{
+  font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);
+  letter-spacing:0.3px;text-transform:uppercase;margin-bottom:10px;
+}
+.bk-note{font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:10px}
+.bk-note strong{color:var(--text);font-weight:600}
+.bk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bk-meta{font-size:10.5px;color:var(--text3);font-family:var(--mono);margin-top:8px}
+.bk-warn{
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--amber-bg);border:1px solid #EBD3A8;border-radius:var(--radius);
+  padding:9px 11px;margin-bottom:10px;font-size:11.5px;color:var(--amber);line-height:1.5;
+}
+.bk-warn > span{flex:1;min-width:0}
+.bk-warn .btn{flex-shrink:0}
+
+/* Sidebar pill sits on the dark sidebar, so it needs its own palette. */
+#backup-side{margin-bottom:10px}
+.bk-side-pill{
+  display:flex;align-items:center;gap:6px;justify-content:center;
+  font-family:var(--mono);font-size:10.5px;line-height:1;
+  padding:6px 9px;border-radius:20px;cursor:pointer;
+  background:rgba(239,203,142,0.12);border:1px solid rgba(239,203,142,0.32);
+  color:#EFCB8E;transition:background .12s;
+}
+.bk-side-pill:hover{background:rgba(239,203,142,0.22)}
+.bk-side-pill::before{
+  content:'';width:6px;height:6px;border-radius:50%;background:#EFCB8E;flex-shrink:0;
+}
 </style>
 </head>
 <body>
@@ -668,6 +702,9 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     <div class="project-badge" id="proj-badge"></div>
   </div>
   <div id="sidebar-footer">
+    <!-- Shown only when project data has changed since the last backup.
+         Clicking returns to Level 2 where the backup controls live. -->
+    <div id="backup-side" style="display:none"></div>
     <div id="last-updated" class="last-updated" style="display:none">
       <span class="lu-label">Last updated</span>
       <span class="lu-time" id="lu-time"></span>
@@ -824,6 +861,17 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <div style="font-size:12px;font-weight:600;color:var(--text2);font-family:var(--display);letter-spacing:0.3px;text-transform:uppercase;margin-bottom:10px">Saved Projects</div>
       <div id="saved-projects-list" style="display:flex;flex-direction:column;gap:6px"></div>
       <div id="saved-projects-empty" style="font-size:12px;color:var(--text3);display:none">No saved projects yet.</div>
+
+      <!-- Data Backup. Deliberately on Level 2, not Level 6: Level 6 is the
+           DiRoots/SheetGen surface, and mixing a browser backup in with those
+           exports would blur what each file is for. Rendered by
+           renderBackupUI(). -->
+      <div id="backup-wrap">
+        <div class="bk-head">Data Backup</div>
+        <div id="backup-panel"></div>
+        <input type="file" id="backup-file-input" accept="application/json,.json"
+               style="display:none" onchange="onBackupFileChosen(this)"/>
+      </div>
     </div>
 
     </div><!-- /.flex row -->
@@ -1077,6 +1125,10 @@ function touchLastUpdated() {
   const ms = Date.now();
   try { localStorage.setItem('si_last_update_ms', String(ms)); } catch (_) {}
   renderLastUpdated(ms);
+  // Backup staleness is measured against this stamp, so refreshing here is what
+  // keeps the reminder honest no matter which level triggered the save —
+  // including Level 5 sheet edits, which never touch renderSavedProjects().
+  if (typeof renderBackupUI === 'function') renderBackupUI();
 }
 
 // Render a stored epoch (ms) into the sidebar; hide the block if none.
@@ -1292,6 +1344,8 @@ function doLogout() {
   S.user = null; S.project = null; S.dirty = {};
   S._editingProjectId = null;
   S._uploadPkgId = null;
+  _backupNagDismissed = false;
+  _pendingRestore = null;
   S._selectedSheets = new Set();
   S._schedSel = new Set();
   S._volumeSourcePkgId = null;
@@ -1305,6 +1359,7 @@ function doLogout() {
   updateActiveProjPills();
   // Level 1 is about to be shown again, and this session may have added an
   // account or changed a project count.
+  renderBackupUI();
   showLogin();
   goTo('login');
 }
@@ -1564,6 +1619,7 @@ function postLogin() {
   S.project = null;
   initProject();
   renderSavedProjects();
+  renderBackupUI();
   goTo('project');
 }
 
@@ -4661,6 +4717,336 @@ function dl(content, filename, type) {
 }
 
 // ================================================================
+// DATA BACKUP — LEVEL 2
+// ================================================================
+/*
+  WHY THIS EXISTS
+  ───────────────
+  localStorage lives on the hard drive, but inside the browser's profile as an
+  opaque database. "Clear browsing data", a cleaner utility, a profile reset or
+  an IT policy erases it, and no web API can prevent that. A backup file is the
+  only copy that survives outside the browser — so it is the only real defence
+  against accidental loss, and everything else is risk reduction.
+
+  WHAT IS IN THE FILE
+  ───────────────────
+  The signed-in account's PROJECTS ONLY — every discipline, package, sheet,
+  Sheet.Index.Code, volume assignment and export setting, because all of those
+  live on the project object.
+
+  NOT included: the account list, and no password. Two reasons, both deliberate.
+  Passwords are stored in plain text (demo-grade auth), and a JSON file on disk
+  gets synced to cloud folders, swept into machine backups and emailed around —
+  localStorage is at least origin-scoped and stays put. And a file containing
+  every account would quietly undo the per-account isolation the rest of the app
+  enforces: handing a colleague a backup gives them your projects, not everyone's
+  logins.
+
+  The cost is one extra step when restoring onto a fresh machine: create the
+  account, then restore. Accounts take thirty seconds to recreate. A stadium
+  package does not.
+
+  RESTORING IS THE DANGEROUS HALF
+  ───────────────────────────────
+  A backup feature destroys data at restore time, not at save time, so restore
+  states plainly what it is about to do and requires confirmation before
+  replacing anything. Two modes, and the safe one is the default:
+
+    'add'      Imported projects JOIN the account's existing projects.
+               Nothing is overwritten. Default.
+    'replace'  The account's existing projects are DELETED and replaced.
+               Hard confirmation showing counts on both sides.
+*/
+
+const BACKUP_KIND      = 'backup';
+const BACKUP_SCHEMA    = 1;
+const LAST_BACKUP_KEY  = 'si_last_backup_ms';     // per account: `${key}:${userId}`
+const BACKUP_STALE_MS  = 7 * 24 * 60 * 60 * 1000; // 7 days
+let _backupNagDismissed = false;                  // this session only
+let _pendingRestore = null;                       // parsed file awaiting a mode choice
+
+// Backup recency is tracked PER ACCOUNT, so two people sharing a computer do
+// not mask each other's reminders.
+function backupKeyFor(userId) {
+  return `${LAST_BACKUP_KEY}:${userId || 'unknown'}`;
+}
+function lastBackupMs() {
+  if (!S.user) return 0;
+  return Number(localStorage.getItem(backupKeyFor(S.user.id))) || 0;
+}
+function markBackupTaken() {
+  if (!S.user) return;
+  try { localStorage.setItem(backupKeyFor(S.user.id), String(Date.now())); } catch (_) {}
+  _backupNagDismissed = false;
+  renderBackupUI();
+}
+
+// ── Save ──────────────────────────────────────────────────────────
+// Only whitelisted fields, listed explicitly. No object spreading — that is
+// what guarantees a credential cannot reach the file even if one is ever added
+// to the user or project record later.
+function buildBackupPayload() {
+  return {
+    app: 'SheetIndex',
+    kind: BACKUP_KIND,
+    schema: BACKUP_SCHEMA,
+    createdAt: new Date().toISOString(),
+    createdAtMs: Date.now(),
+    // Display only, so you can tell whose backup a file is without opening the
+    // projects. Never used to authenticate anything on restore.
+    account: { name: S.user.name || '', email: S.user.email || '' },
+    projectCount: ownedProjects().length,
+    projects: JSON.parse(JSON.stringify(ownedProjects()))
+  };
+}
+
+// Filename: sortable, and identifies the account without opening the file.
+function backupFileName() {
+  const who = String((S.user && S.user.email) || 'account').split('@')[0].replace(/[^A-Za-z0-9._-]/g, '') || 'account';
+  return `SheetIndex-backup-${who}-${fmtStampCompact(new Date())}.json`;
+}
+
+function saveBackupFile() {
+  if (!S.user) return;
+  const n = ownedProjects().length;
+  if (!n) {
+    setAlert('backup-alert', 'There are no projects to back up yet.', 'info');
+    return;
+  }
+  try {
+    dl(JSON.stringify(buildBackupPayload(), null, 2), backupFileName(), 'application/json');
+    markBackupTaken();
+    setAlert('backup-alert', `Backup saved — ${n} project${n === 1 ? '' : 's'}. Keep it somewhere already backed up, not just in Downloads.`, 'success');
+  } catch (e) {
+    setAlert('backup-alert', 'Could not create the backup file: ' + (e.message || e), 'danger');
+  }
+}
+
+// ── Restore ───────────────────────────────────────────────────────
+function pickBackupFile() {
+  const input = document.getElementById('backup-file-input');
+  if (input) { input.value = ''; input.click(); }
+}
+
+// Reads and validates the chosen file, then asks which mode to use. Nothing is
+// written to DB on this path — the file is parked in _pendingRestore until the
+// user picks a mode and confirms.
+function onBackupFileChosen(inputEl) {
+  setAlert('backup-alert', '');
+  const file = inputEl && inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => setAlert('backup-alert', 'That file could not be read.', 'danger');
+  reader.onload = () => {
+    let payload;
+    try { payload = JSON.parse(String(reader.result)); }
+    catch (_) { setAlert('backup-alert', 'That file is not valid JSON, so it is not a SheetIndex backup.', 'danger'); return; }
+    const problem = validateBackup(payload);
+    if (problem) { setAlert('backup-alert', problem, 'danger'); return; }
+    _pendingRestore = payload;
+    askRestoreMode(file.name);
+  };
+  reader.readAsText(file);
+}
+
+// Refuses anything that is not a SheetIndex backup, and refuses a file from a
+// NEWER build — that file may contain fields this build would silently drop,
+// which is worse than declining to open it.
+function validateBackup(p) {
+  if (!p || typeof p !== 'object') return 'That file is not a SheetIndex backup.';
+  // Checked BEFORE the generic app-field test: a Level 6 export has no `app`
+  // field, so the generic message would otherwise fire first and the specific,
+  // actionable one would be unreachable. Its distinguishing signature is a
+  // `columns` label array plus an `exported` stamp, neither of which a backup
+  // has, and a `project` singular rather than `projects`.
+  if (p.kind !== BACKUP_KIND && (p.exported || Array.isArray(p.columns)) && p.project && !p.projects) {
+    return 'That looks like a Level 6 export, not a backup. Exports are shaped for DiRoots and do not contain everything needed to restore. Use a file saved with "Save Backup File".';
+  }
+  if (p.app !== 'SheetIndex') return 'That file is not a SheetIndex backup.';
+  if (p.kind !== BACKUP_KIND) return 'That file is not a SheetIndex backup.';
+  if (Number(p.schema) > BACKUP_SCHEMA) return `That backup was written by a newer version of SheetIndex (format ${p.schema}). Update this copy of the app before restoring it.`;
+  if (!Array.isArray(p.projects)) return 'That backup contains no project list.';
+  if (!p.projects.length) return 'That backup contains no projects.';
+  const bad = p.projects.find(x => !x || typeof x !== 'object' || !x.num);
+  if (bad !== undefined) return 'That backup contains a malformed project record and was not restored.';
+  return null;
+}
+
+function askRestoreMode(fileName) {
+  const p = _pendingRestore;
+  const inc = p.projects.length;
+  const cur = ownedProjects().length;
+  const when = p.createdAtMs ? fmtStamp(new Date(Number(p.createdAtMs))) : 'an unknown time';
+  const whose = (p.account && p.account.email) ? p.account.email : 'an unknown account';
+
+  showModal('Restore from backup',
+    `${fileName}\n\nSaved ${when} by ${whose} — ${inc} project${inc === 1 ? '' : 's'}.\n`
+    + `This account currently has ${cur} project${cur === 1 ? '' : 's'}.\n\n`
+    + `ADD keeps what you have and brings the backup's projects in alongside it. Nothing is overwritten.\n\n`
+    + `REPLACE deletes this account's ${cur} project${cur === 1 ? '' : 's'} and leaves only the ${inc} from the backup.`,
+    [
+      {label:'Add to my projects', primary:true, action:() => { closeModal(); runRestore('add'); }},
+      cur ? {label:'Replace all my projects', action:() => { closeModal(); confirmReplaceRestore(); }} : null,
+      {label:'Cancel', action:() => { closeModal(); _pendingRestore = null; }}
+    ].filter(Boolean));
+}
+
+// Replace is destructive and irreversible, so it gets its own confirmation
+// rather than being one click away behind the mode picker.
+function confirmReplaceRestore() {
+  const cur = ownedProjects().length;
+  const inc = _pendingRestore ? _pendingRestore.projects.length : 0;
+  showModal('Delete your current projects?',
+    `This permanently deletes all ${cur} project${cur === 1 ? '' : 's'} in this account, including every discipline, package, sheet and Volume assignment, and replaces them with the ${inc} from the backup file.\n\n`
+    + `This cannot be undone. Save a backup of what you have now if you are not certain.`,
+    [
+      {label:'Save a backup first', primary:true, action:() => { closeModal(); saveBackupFile(); askRestoreMode('the file you chose'); }},
+      {label:'Delete and replace', action:() => { closeModal(); runRestore('replace'); }},
+      {label:'Cancel', action:() => { closeModal(); _pendingRestore = null; }}
+    ]);
+}
+
+function runRestore(mode) {
+  const p = _pendingRestore;
+  _pendingRestore = null;
+  if (!p || !S.user) return;
+
+  // Deep copy so the incoming records share no references with the parsed
+  // payload, then migrate them to the current schema before adoption.
+  const incoming = JSON.parse(JSON.stringify(p.projects));
+  migrateProjects(incoming);
+
+  const kept = (mode === 'replace') ? [] : ownedProjects().slice();
+  const otherAccounts = DB.projects.filter(x => x.ownerId !== S.user.id);
+
+  // Numbers are unique per account and enforced, so a collision has to be
+  // resolved rather than left to fail later. Both copies are kept and the
+  // imported one is suffixed — losing a project silently would be worse than a
+  // renamed one, and the rename is reported.
+  const used = new Set(kept.map(x => String(x.num)));
+  const renamed = [];
+  let orderSeed = Date.now();
+
+  incoming.forEach(proj => {
+    // Fresh id: uid() is short enough to collide, and an imported project must
+    // never land on top of an existing one. Re-owned to the signed-in account,
+    // so a backup can never inject a project into someone else's data.
+    proj.id = uid();
+    proj.ownerId = S.user.id;
+    proj.order = orderSeed++;
+    if (!proj.created) proj.created = Date.now();
+
+    const original = String(proj.num || '');
+    if (used.has(original)) {
+      let n = 2, candidate;
+      do { candidate = truncNum(original, n); n++; } while (used.has(candidate) && n < 100);
+      proj.num = candidate;
+      renamed.push(`${original} → ${candidate}`);
+    }
+    used.add(String(proj.num));
+  });
+
+  // Rebuilt rather than mutated in place, so other accounts' projects are
+  // carried across untouched and this can never drop them.
+  DB.projects = otherAccounts.concat(kept, incoming);
+
+  // The active project may have just been deleted by a replace.
+  if (S.project && !DB.projects.includes(S.project)) {
+    S.project = null;
+    S._editingProjectId = null;
+    initProject();
+    document.getElementById('proj-badge').textContent = S.user.email;
+    updateActiveProjPills();
+    document.querySelectorAll('.nav-item[data-step]').forEach(n => {
+      if (!['login','project'].includes(n.dataset.step)) n.classList.add('locked');
+    });
+  }
+
+  if (!saveDB()) {
+    setAlert('backup-alert', 'The restore could not be saved — this browser\'s storage is full. Delete a project or free up space, then try again.', 'danger');
+    return;
+  }
+  renderSavedProjects();
+  renderBackupUI();
+
+  const n = incoming.length;
+  let msg = mode === 'replace'
+    ? `Restored ${n} project${n === 1 ? '' : 's'}, replacing what was here before.`
+    : `Added ${n} project${n === 1 ? '' : 's'} from the backup.`;
+  if (renamed.length) {
+    msg += ` ${renamed.length} project number${renamed.length === 1 ? '' : 's'} already in use, so the imported cop${renamed.length === 1 ? 'y was' : 'ies were'} renumbered: ${renamed.join(', ')}.`;
+  }
+  setAlert('backup-alert', msg, 'success');
+}
+
+// Appends a " (n)" suffix while respecting the 14-character project-number
+// limit the form enforces, so a renumbered import cannot become unsaveable.
+function truncNum(num, n) {
+  const suffix = ` (${n})`;
+  const room = 14 - suffix.length;
+  return String(num).slice(0, Math.max(1, room)) + suffix;
+}
+
+// ── Staleness reminder ────────────────────────────────────────────
+// Triggered by CHANGED DATA, not by the calendar — nagging someone who has not
+// touched the app is how a reminder gets ignored. Shows when project data has
+// changed since the last backup AND either no backup was ever taken or the last
+// one is older than the threshold.
+function backupIsStale() {
+  if (!S.user || !ownedProjects().length) return false;
+  const last = lastBackupMs();
+  const changed = (Number(localStorage.getItem('si_last_update_ms')) || 0) > last;
+  if (!changed) return false;
+  return !last || (Date.now() - last) > BACKUP_STALE_MS;
+}
+function dismissBackupNag() {
+  _backupNagDismissed = true;
+  renderBackupUI();
+}
+
+function renderBackupUI() {
+  const wrap = document.getElementById('backup-wrap');
+  const panel = document.getElementById('backup-panel');
+  // Runs during boot migrations too, before anyone has signed in — there is no
+  // account whose projects could be backed up yet.
+  if (!S.user) {
+    if (wrap) wrap.style.display = 'none';
+    const side0 = document.getElementById('backup-side');
+    if (side0) { side0.style.display = 'none'; side0.innerHTML = ''; }
+    return;
+  }
+  if (wrap) wrap.style.display = '';
+  if (panel) {
+    const last = lastBackupMs();
+    const n = ownedProjects().length;
+    const stale = backupIsStale();
+    panel.innerHTML = `
+      <div class="bk-note">Saves this account's ${n} project${n === 1 ? '' : 's'} to a file on your computer.
+        Accounts and passwords are <strong>not</strong> included — recreate the account, then restore.</div>
+      ${(stale && !_backupNagDismissed) ? `<div class="bk-warn">
+        <span>${last ? 'Your projects have changed since your last backup on ' + escHtml(fmtStamp(new Date(last))) + '.' : 'You have never saved a backup file.'}
+        Clearing this browser's data would erase everything.</span>
+        <button class="btn btn-sm" onclick="dismissBackupNag()" title="Hide until next sign-in">Dismiss</button>
+      </div>` : ''}
+      <div class="bk-row">
+        <button class="btn btn-primary btn-sm" onclick="saveBackupFile()">Save Backup File</button>
+        <button class="btn btn-sm" onclick="pickBackupFile()">Restore From File…</button>
+      </div>
+      <div class="bk-meta">${last ? 'Last backup ' + escHtml(fmtStamp(new Date(last))) : 'No backup saved yet on this computer'}</div>
+      <div id="backup-alert"></div>`;
+  }
+  const side = document.getElementById('backup-side');
+  if (side) {
+    const show = !!S.user && backupIsStale();
+    side.style.display = show ? '' : 'none';
+    side.innerHTML = show
+      ? `<div class="bk-side-pill" onclick="tryNav('project')" role="button" tabindex="0"
+           title="Your projects have changed since your last backup — open Level 2 to save one">Backup due</div>`
+      : '';
+  }
+}
+
+// ================================================================
 // UTILITY
 // ================================================================
 function setAlert(elId, msg, type) {
@@ -4691,38 +5077,45 @@ if (!DB.users.length) {
   if (demo) { demo.pass = 'password'; saveDB(); }
 }
 
-// Migration: add volumeNum to all disciplines on all projects (volume-based sheet grouping)
-{
-  let migrated = false;
-  DB.projects.forEach(proj => {
+// ── Project schema migrations ─────────────────────────────────────
+// Extracted into a function rather than run inline at boot, because projects
+// arriving from a RESTORED BACKUP may have been written by an older build and
+// need exactly the same up-conversion that stored projects get. restoreBackup()
+// calls this on the incoming projects before they are adopted, so imported and
+// local data always reach the same schema.
+//
+// Must stay idempotent — this runs on every load AND on every restore.
+// Returns true if anything changed.
+function migrateProjects(projects) {
+  let changed = false;
+
+  // Migration: add volumeNum to all disciplines (volume-based sheet grouping)
+  (projects || []).forEach(proj => {
     if (proj.disciplines) {
       proj.disciplines.forEach(disc => {
-        if (!disc.volumeNum) { disc.volumeNum = 'Volume-1'; migrated = true; }
+        if (!disc.volumeNum) { disc.volumeNum = 'Volume-1'; changed = true; }
       });
     }
   });
-  if (migrated) saveDB();
-}
 
-// Migration: convert sheet.volumeNum (global) to sheet.volumes[packageId] (package-scoped)
-// For each sheet, copy volumeNum into volumes[packageId].
-{
-  let migrated = false;
-  DB.projects.forEach(proj => {
+  // Migration: convert sheet.volumeNum (global) to sheet.volumes[packageId]
+  // (package-scoped). For each sheet, copy volumeNum into volumes[packageId].
+  (projects || []).forEach(proj => {
     if (proj.sheets) {
       proj.sheets.forEach(s => {
-        if (!s.volumes) { s.volumes = {}; }
+        if (!s.volumes) { s.volumes = {}; changed = true; }
         if (s.volumeNum && s.packageId) {
           s.volumes[s.packageId] = s.volumeNum;
-          migrated = true;
+          changed = true;
         }
-        // Ensure volumes object exists even if empty
-        if (!s.volumes) { s.volumes = {}; migrated = true; }
       });
     }
   });
-  if (migrated) saveDB();
+
+  return changed;
 }
+
+if (migrateProjects(DB.projects)) saveDB();
 
 // Show the most recent update time (from this or a previous session) on load.
 renderLastUpdated(localStorage.getItem('si_last_update_ms'));
@@ -4741,6 +5134,52 @@ renderAccountList();
   Open index.html in any modern browser. No server required.
   Data is persisted to browser localStorage. There is no cloud storage, no
   server and no network dependency — everything stays on this computer.
+
+  DATA BACKUP (Level 2)
+  localStorage lives on the hard drive, but inside the browser's profile as an
+  opaque database. "Clear browsing data", a cleaner utility, a profile reset or
+  an IT policy erases it, and no web API can prevent that. The backup file is
+  the only copy that survives outside the browser, so it is the only real
+  defence against accidental loss.
+
+  "Save Backup File" writes the signed-in account's projects — every discipline,
+  package, sheet, Sheet.Index.Code, volume assignment and export setting — to a
+  JSON file named SheetIndex-backup-<account>-<YYMMDD_hhmmss>.json.
+
+  Accounts and passwords are deliberately NOT in the file. Passwords are stored
+  in plain text (demo-grade auth), and a file on disk gets synced to cloud
+  folders, swept into machine backups and emailed around, whereas localStorage
+  is at least origin-scoped. A file holding every account would also undo the
+  per-account isolation the rest of the app enforces. Restoring onto a fresh
+  machine therefore takes one extra step: create the account, then restore.
+  buildBackupPayload() whitelists fields rather than spreading objects, so a
+  credential cannot reach the file even if one is added to the schema later.
+
+  "Restore From File…" validates the file, then asks which mode to use:
+    ADD      (default) imported projects join the account's existing ones.
+             Nothing is overwritten.
+    REPLACE  the account's projects are deleted and replaced. Separate hard
+             confirmation, with an offer to back up first.
+
+  On import, every project gets a FRESH id (uid() is short enough to collide)
+  and is re-owned to the signed-in account, so a backup can never inject a
+  project into someone else's data or land on top of an existing one. Project
+  numbers are unique per account and enforced, so a collision keeps BOTH copies
+  and renumbers the imported one with a " (n)" suffix within the 14-character
+  limit; the renames are reported. migrateProjects() runs on incoming projects,
+  so a backup written by an older build lands on the current schema.
+
+  A reminder appears on Level 2 (and a "Backup due" pill in the sidebar) when
+  project data has changed since the last backup AND the last one is missing or
+  older than BACKUP_STALE_MS (7 days). It is triggered by changed data, not the
+  calendar. Recency is tracked per account under si_last_backup_ms:<userId>.
+
+  This does NOT make browser storage durable. Nothing stops "Clear browsing
+  data", and the file is only as current as the last time it was saved. If
+  losing a package would be costly, treat the file as the real storage and
+  localStorage as the cache, and keep the file somewhere already backed up.
+  Automatic writes to the same file on disk would need the File System Access
+  API, which is Chromium-desktop-only and requires HTTPS.
 
   ACCOUNTS
   Any number of accounts can be saved in this browser, and each one's data is
