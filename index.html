@@ -661,6 +661,31 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
 .bk-side-pill::before{
   content:'';width:6px;height:6px;border-radius:50%;background:#EFCB8E;flex-shrink:0;
 }
+
+/* Chosen backup folder row. Only rendered where the picker can actually work. */
+.bk-folder{display:flex;align-items:center;gap:8px;margin-top:4px}
+.bk-folder-label{
+  font-size:10px;font-weight:600;color:var(--text3);font-family:var(--display);
+  text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;
+}
+.bk-folder-name{
+  flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--text);
+  background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:5px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* Destructive account actions, visually separated so they are never a stray
+   click away from the backup buttons above. */
+.bk-danger{
+  margin-top:22px;padding:13px 14px;
+  background:var(--red-bg);border:1px solid #F7C1C1;border-radius:var(--radius);
+}
+.bk-danger-head{
+  font-size:10px;font-weight:600;color:var(--red);font-family:var(--display);
+  text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;
+}
+.bk-danger .bk-note{color:var(--text2)}
+.bk-pass{height:30px;font-size:12px;font-family:var(--mono);padding:4px 9px;flex:1;min-width:0}
 </style>
 </head>
 <body>
@@ -759,7 +784,15 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input id="reg-pass" class="form-input" type="password" placeholder="Min 8 characters"/>
+        <input id="reg-pass" class="form-input" type="password" placeholder="Min 8 characters"
+               oninput="renderRegMatch()"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm Password</label>
+        <input id="reg-pass2" class="form-input" type="password" placeholder="Re-enter password"
+               oninput="renderRegMatch()"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();doRegister()}"/>
+        <div id="reg-match-hint" style="font-size:11px;margin-top:4px"></div>
       </div>
       <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRegister()">Create account</button>
       <div style="text-align:center;font-size:12px">
@@ -771,7 +804,13 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <label class="form-label">Account email</label>
         <input id="rec-email" class="form-input" type="email" placeholder="architect@firm.com"/>
       </div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRecover()">Send reset link</button>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRecover()">Show my password</button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px">
+        This shows your password on screen. It cannot be emailed — SheetIndex runs
+        entirely in your browser with no mail server, so there is nothing to send
+        from. Anyone at this computer can use this, so treat it as a convenience,
+        not a security feature.
+      </div>
       <div style="text-align:center;font-size:12px">
         <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to sign in</a>
       </div>
@@ -1553,7 +1592,23 @@ function showLogin() {
   setAlert('login-alert', '');
   renderAccountList();
 }
+// Live feedback while typing, so a mismatch is visible before the button is
+// pressed rather than only after a failed submit.
+function renderRegMatch() {
+  const el = document.getElementById('reg-match-hint');
+  if (!el) return;
+  const a = document.getElementById('reg-pass').value;
+  const b = document.getElementById('reg-pass2').value;
+  if (!b) { el.textContent = ''; return; }
+  const ok = a === b;
+  el.textContent = ok ? 'Passwords match' : 'Passwords do not match';
+  el.style.color = ok ? 'var(--green)' : 'var(--red)';
+}
+
 function showRegister() {
+  const p2 = document.getElementById('reg-pass2');
+  if (p2) p2.value = '';
+  renderRegMatch();
   document.getElementById('form-login').style.display = 'none';
   document.getElementById('form-register').style.display = '';
   document.getElementById('form-recover').style.display = 'none';
@@ -1587,8 +1642,18 @@ function doRegister() {
   const name = document.getElementById('reg-name').value.trim();
   const email = normalizeEmail(document.getElementById('reg-email').value);
   const pass = document.getElementById('reg-pass').value;
-  if (!name || !email || !pass) { setAlert('login-alert', 'All fields required.', 'danger'); return; }
+  const pass2 = document.getElementById('reg-pass2').value;
+  if (!name || !email || !pass || !pass2) { setAlert('login-alert', 'All fields required.', 'danger'); return; }
   if (pass.length < 8) { setAlert('login-alert', 'Password must be at least 8 characters.', 'danger'); return; }
+  // Compared before anything is written. There is no password-reset path that
+  // can reach a real mailbox from a static page, so a typo in the password
+  // would lock the account out of its own projects permanently — which is why
+  // confirmation is a hard requirement rather than a convenience.
+  if (pass !== pass2) {
+    setAlert('login-alert', 'The two passwords do not match.', 'danger');
+    renderRegMatch();
+    return;
+  }
   // One account per email address. Checked case-insensitively, so a case
   // variant of an existing address cannot open a second account against the
   // same real mailbox.
@@ -1608,8 +1673,15 @@ function doRecover() {
   if (!normalizeEmail(email)) { setAlert('login-alert', 'Enter your account email.', 'danger'); return; }
   const user = findUserByEmail(email);
   if (!user) { setAlert('login-alert', 'No account found with that email.', 'danger'); return; }
-  setAlert('login-alert', `Reset link sent to ${email}. (Demo: password is "${user.pass}")`, 'info');
+  // Honest wording. The previous copy claimed a reset link had been sent, which
+  // was never true: a page served as static files has no mail server and no
+  // secret it could safely hold to call a mail API from the browser. Real
+  // password-reset email requires an auth backend — see the README.
+  // showLogin() clears #login-alert, so the message must be set AFTER it.
+  // Reversing these two lines is a pre-existing bug: recovery has never
+  // actually displayed anything, because the alert was wiped on the next line.
   showLogin();
+  setAlert('login-alert', `Password for ${escHtml(user.email)} is "${escHtml(user.pass)}". Nothing was emailed.`, 'info');
 }
 
 function postLogin() {
@@ -1620,6 +1692,10 @@ function postLogin() {
   initProject();
   renderSavedProjects();
   renderBackupUI();
+  // Async and non-blocking: reads the remembered folder handle from IndexedDB
+  // and repaints when it arrives. Never requests permission here — that needs a
+  // user gesture, so it happens on the Save click instead.
+  loadBackupFolder();
   goTo('project');
 }
 
@@ -4781,6 +4857,132 @@ function markBackupTaken() {
   renderBackupUI();
 }
 
+// ── Backup folder (File System Access API) ────────────────────────
+/*
+  Choosing a folder once and reusing it needs showDirectoryPicker() plus a
+  persisted FileSystemDirectoryHandle. Constraints, all of them hard:
+
+    • Chromium desktop only — Chrome/Edge/Opera. Firefox and Safari ship only
+      the Origin Private File System and no local-disk pickers, and no mobile
+      browser exposes them.
+    • Secure context required. Works on the GitHub Pages URL; does NOT work if
+      index.html is opened straight from disk as file://.
+    • The handle must live in IndexedDB, not localStorage — it is
+      structured-cloneable but not JSON-serialisable.
+    • Read/write permission may need re-granting after a reload, and
+      requestPermission() requires a user gesture. The Save button click is
+      that gesture, so the re-grant happens inline rather than on page load.
+
+  When any of that is unavailable the folder UI is hidden entirely and saving
+  falls back to a normal download, which works everywhere. The fallback is not
+  a degraded mode — it is the baseline, and the folder is the enhancement.
+
+  GOOGLE DRIVE: pick the folder that Google Drive for desktop mounts locally
+  (G:\\My Drive\\... on Windows, ~/Google Drive/... on macOS). Files written
+  there sync like any other Drive file. This is deliberately NOT the Drive API,
+  which would need an OAuth client and a token this app must not hold.
+*/
+const BK_DB   = 'sheetindex-fs';
+const BK_STORE = 'handles';
+const BK_DIR_KEY = 'backupDir';
+
+function fsPickerSupported() {
+  return typeof window !== 'undefined'
+      && typeof window.showDirectoryPicker === 'function'
+      && window.isSecureContext === true;
+}
+
+// Minimal IndexedDB wrapper. Only ever holds the directory handle — no project
+// data and no credentials.
+function bkIdb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) { resolve(null); return; }
+    let req;
+    try { req = indexedDB.open(BK_DB, 1); } catch (_) { resolve(null); return; }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(BK_STORE)) db.createObjectStore(BK_STORE);
+    };
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      let tx;
+      try { tx = db.transaction(BK_STORE, mode); } catch (_) { db.close(); resolve(null); return; }
+      const store = tx.objectStore(BK_STORE);
+      let out = null;
+      try { out = fn(store); } catch (_) {}
+      tx.oncomplete = () => {
+        db.close();
+        // An IDBRequest for a missing key has `result === undefined`, and
+        // returning the request object itself would be TRUTHY — which made a
+        // never-chosen folder look like a saved one. Unwrap explicitly.
+        if (out && typeof out === 'object' && 'result' in out) { resolve(out.result === undefined ? null : out.result); return; }
+        resolve(out === undefined ? null : out);
+      };
+      tx.onerror = () => { db.close(); resolve(null); };
+      tx.onabort = () => { db.close(); resolve(null); };
+    };
+  });
+}
+function bkSaveDirHandle(h) { return bkIdb('readwrite', st => st.put(h, BK_DIR_KEY)); }
+function bkClearDirHandle() { return bkIdb('readwrite', st => st.delete(BK_DIR_KEY)); }
+function bkLoadDirHandle() { return bkIdb('readonly', st => st.get(BK_DIR_KEY)); }
+
+let _backupDir = null;   // FileSystemDirectoryHandle, or null for download mode
+
+// Loaded at sign-in. Deliberately does NOT request permission — that needs a
+// user gesture, and prompting on page load would be both blocked and rude.
+async function loadBackupFolder() {
+  _backupDir = null;
+  if (!fsPickerSupported()) { renderBackupUI(); return; }
+  try {
+    const h = await bkLoadDirHandle();
+    // Only adopt something that really is a directory handle. Stale or foreign
+    // content in the store must not reach the save path.
+    _backupDir = (h && typeof h.getFileHandle === 'function' && typeof h.queryPermission === 'function') ? h : null;
+  } catch (_) { _backupDir = null; }
+  renderBackupUI();
+}
+
+async function chooseBackupFolder() {
+  if (!fsPickerSupported()) return;
+  setAlert('backup-alert', '');
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ id: 'sheetindex-backup', mode: 'readwrite', startIn: 'documents' });
+  } catch (e) {
+    // AbortError just means the user closed the picker — not worth an alert.
+    if (e && e.name !== 'AbortError') setAlert('backup-alert', 'That folder could not be opened: ' + (e.message || e), 'danger');
+    return;
+  }
+  if (!(await ensureDirPermission(handle))) {
+    setAlert('backup-alert', 'Write permission was not granted for that folder, so it was not set as the default.', 'danger');
+    return;
+  }
+  _backupDir = handle;
+  await bkSaveDirHandle(handle);
+  renderBackupUI();
+  setAlert('backup-alert', `Backups will now be saved to “${escHtml(handle.name)}”. If that folder is inside Google Drive, Dropbox or OneDrive, they sync automatically.`, 'success');
+}
+
+async function clearBackupFolder() {
+  _backupDir = null;
+  await bkClearDirHandle();
+  renderBackupUI();
+  setAlert('backup-alert', 'Default folder cleared. Backups will download to your browser\'s download folder.', 'info');
+}
+
+// Verifies (and if necessary re-requests) readwrite permission. Must be called
+// from within a user gesture for the request to be allowed.
+async function ensureDirPermission(handle) {
+  if (!handle || typeof handle.queryPermission !== 'function') return false;
+  try {
+    const opts = { mode: 'readwrite' };
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    return (await handle.requestPermission(opts)) === 'granted';
+  } catch (_) { return false; }
+}
+
 // ── Save ──────────────────────────────────────────────────────────
 // Only whitelisted fields, listed explicitly. No object spreading — that is
 // what guarantees a credential cannot reach the file even if one is ever added
@@ -4806,17 +5008,48 @@ function backupFileName() {
   return `SheetIndex-backup-${who}-${fmtStampCompact(new Date())}.json`;
 }
 
-function saveBackupFile() {
+async function saveBackupFile() {
   if (!S.user) return;
   const n = ownedProjects().length;
   if (!n) {
     setAlert('backup-alert', 'There are no projects to back up yet.', 'info');
     return;
   }
+  const name = backupFileName();
+  let fallbackNote = '';   // set when a chosen folder could not be used
+  let text;
+  try { text = JSON.stringify(buildBackupPayload(), null, 2); }
+  catch (e) { setAlert('backup-alert', 'Could not build the backup: ' + (e.message || e), 'danger'); return; }
+
+  // Chosen folder, if one is set and still permitted. Any failure falls through
+  // to the download path rather than leaving the user with no backup at all —
+  // a revoked folder permission must never cost you the save.
+  if (_backupDir) {
+    try {
+      if (await ensureDirPermission(_backupDir)) {
+        const fh = await _backupDir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(text);
+        await w.close();
+        // Stamp BEFORE reporting: markBackupTaken() repaints the panel, which
+        // recreates an empty #backup-alert and would discard a message set
+        // first.
+        markBackupTaken();
+        setAlert('backup-alert', `Backup saved to “${escHtml(_backupDir.name)}” as ${escHtml(name)} — ${n} project${n === 1 ? '' : 's'}.`, 'success');
+        return;
+      }
+      fallbackNote = `Write permission for “${escHtml(_backupDir.name)}” was not granted, so the backup was downloaded instead.`;
+    } catch (e) {
+      fallbackNote = `Could not write to “${escHtml(_backupDir.name)}” (${escHtml(String(e && e.message || e))}). The backup was downloaded instead.`;
+    }
+  }
+
   try {
-    dl(JSON.stringify(buildBackupPayload(), null, 2), backupFileName(), 'application/json');
+    dl(text, name, 'application/json');
     markBackupTaken();
-    setAlert('backup-alert', `Backup saved — ${n} project${n === 1 ? '' : 's'}. Keep it somewhere already backed up, not just in Downloads.`, 'success');
+    setAlert('backup-alert',
+      fallbackNote || `Backup saved — ${n} project${n === 1 ? '' : 's'}. Keep it somewhere already backed up, not just in Downloads.`,
+      fallbackNote ? 'info' : 'success');
   } catch (e) {
     setAlert('backup-alert', 'Could not create the backup file: ' + (e.message || e), 'danger');
   }
@@ -5017,9 +5250,34 @@ function renderBackupUI() {
   }
   if (wrap) wrap.style.display = '';
   if (panel) {
+    // Any repaint rebuilds #backup-alert as empty, which would silently discard
+    // a message the user just triggered. This is not hypothetical ordering
+    // pedantry: loadBackupFolder() resolves from IndexedDB at an arbitrary later
+    // moment and repaints, so a validation error shown before it lands would
+    // vanish on a fast machine and survive on a slow one. Carry the alert across.
+    const prevAlert = document.getElementById('backup-alert');
+    const carriedAlert = prevAlert ? prevAlert.innerHTML : '';
+    const prevDanger = document.getElementById('acct-danger-alert');
+    const carriedDanger = prevDanger ? prevDanger.innerHTML : '';
     const last = lastBackupMs();
     const n = ownedProjects().length;
     const stale = backupIsStale();
+    // The folder row only appears where the API can actually work. Elsewhere the
+    // download path is the whole story and offering a folder we cannot honour
+    // would be a broken promise.
+    const folderRow = fsPickerSupported()
+      ? `<div class="bk-folder">
+           <div class="bk-folder-label">Save to</div>
+           <div class="bk-folder-name" title="${_backupDir ? escHtml(_backupDir.name) : 'Browser download folder'}">${
+             _backupDir ? escHtml(_backupDir.name) : 'Browser download folder'}</div>
+           <button class="btn btn-sm" onclick="chooseBackupFolder()">${_backupDir ? 'Change' : 'Choose folder'}</button>
+           ${_backupDir ? `<button class="btn btn-sm btn-icon" onclick="clearBackupFolder()" title="Go back to the download folder">×</button>` : ''}
+         </div>
+         <div class="bk-meta">${_backupDir
+            ? 'Remembered as your default. A folder inside Google Drive, Dropbox or OneDrive syncs automatically.'
+            : 'Choose a folder to save there every time — including a Google Drive folder, if you have Drive for desktop installed.'}</div>`
+      : `<div class="bk-meta">Backups download to your browser\u2019s download folder. Choosing a specific folder needs Chrome, Edge or Opera on desktop, opened over https — set your browser\u2019s download folder to a Google Drive folder to get the same effect.</div>`;
+
     panel.innerHTML = `
       <div class="bk-note">Saves this account's ${n} project${n === 1 ? '' : 's'} to a file on your computer.
         Accounts and passwords are <strong>not</strong> included — recreate the account, then restore.</div>
@@ -5028,12 +5286,32 @@ function renderBackupUI() {
         Clearing this browser's data would erase everything.</span>
         <button class="btn btn-sm" onclick="dismissBackupNag()" title="Hide until next sign-in">Dismiss</button>
       </div>` : ''}
-      <div class="bk-row">
+      ${folderRow}
+      <div class="bk-row" style="margin-top:12px">
         <button class="btn btn-primary btn-sm" onclick="saveBackupFile()">Save Backup File</button>
         <button class="btn btn-sm" onclick="pickBackupFile()">Restore From File…</button>
       </div>
       <div class="bk-meta">${last ? 'Last backup ' + escHtml(fmtStamp(new Date(last))) : 'No backup saved yet on this computer'}</div>
-      <div id="backup-alert"></div>`;
+      <div id="backup-alert"></div>
+
+      <div class="bk-danger">
+        <div class="bk-danger-head">Delete Account</div>
+        <div class="bk-note">Permanently deletes <strong>${escHtml(S.user.email)}</strong> and
+          ${n === 0 ? 'its data' : `its ${n} project${n === 1 ? '' : 's'}`}. Other accounts on this
+          computer are not affected. This cannot be undone.</div>
+        <div class="bk-row">
+          <input id="del-acct-pass" class="form-input bk-pass" type="password" autocomplete="off"
+                 placeholder="Confirm your password"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();confirmDeleteAccount()}"/>
+          <button class="btn btn-sm btn-danger" onclick="confirmDeleteAccount()">Delete Account</button>
+        </div>
+        <div id="acct-danger-alert"></div>
+      </div>`;
+    // Restore the carried messages after the rebuild.
+    const a = document.getElementById('backup-alert');
+    if (a && carriedAlert) a.innerHTML = carriedAlert;
+    const d = document.getElementById('acct-danger-alert');
+    if (d && carriedDanger) d.innerHTML = carriedDanger;
   }
   const side = document.getElementById('backup-side');
   if (side) {
@@ -5044,6 +5322,84 @@ function renderBackupUI() {
            title="Your projects have changed since your last backup — open Level 2 to save one">Backup due</div>`
       : '';
   }
+}
+
+// ================================================================
+// DELETE ACCOUNT — LEVEL 2
+// ================================================================
+/*
+  Deletes the SIGNED-IN account and everything it owns. Three gates, because
+  this is the most destructive action in the app and it is irreversible:
+
+    1. The account's own password must be typed. Being signed in is not enough —
+       a machine left unlocked would otherwise be one click from data loss.
+    2. The project count is stated, with an offer to back up first.
+    3. A final confirmation names what is about to go.
+
+  Scoped by owner throughout: only this account's user record and only projects
+  whose ownerId matches are removed. Other accounts on the computer are
+  untouched, which is the same isolation boundary the rest of the app enforces.
+
+  Deleting the last remaining account leaves DB.users empty; the demo seed then
+  recreates demo@firm.com on the next load, so the app is never unusable.
+*/
+function confirmDeleteAccount() {
+  if (!S.user) return;
+  const pw = document.getElementById('del-acct-pass');
+  const typed = pw ? pw.value : '';
+  if (pw) pw.value = '';
+  if (!typed) { setAlert('acct-danger-alert', 'Enter your password to delete this account.', 'danger'); return; }
+  if (typed !== S.user.pass) { setAlert('acct-danger-alert', 'That password is not correct.', 'danger'); return; }
+  setAlert('acct-danger-alert', '');
+
+  const n = ownedProjects().length;
+  const others = DB.users.length - 1;
+  showModal('Delete this account?',
+    `${S.user.email}\n\n`
+    + `This permanently deletes the account and ${
+        n === 0 ? 'nothing else — it has no projects'
+                : `its ${n} project${n === 1 ? '' : 's'}, including every discipline, package, sheet and Volume assignment`}.\n\n`
+    + (others > 0
+        ? `The other ${others} account${others === 1 ? '' : 's'} on this computer ${others === 1 ? 'is' : 'are'} not affected.\n\n`
+        : `This is the only account on this computer. A fresh demo account will be created next time the app loads.\n\n`)
+    + `This cannot be undone.`,
+    [
+      n ? {label:'Save a backup first', primary:true, action:async () => { closeModal(); await saveBackupFile(); confirmDeleteAccountFinal(); }} : null,
+      {label:'Delete account', primary:!n, action:() => { closeModal(); confirmDeleteAccountFinal(); }},
+      {label:'Cancel', action:closeModal}
+    ].filter(Boolean));
+}
+
+function confirmDeleteAccountFinal() {
+  if (!S.user) return;
+  const n = ownedProjects().length;
+  showModal('Last chance',
+    `Delete ${S.user.email} and ${n} project${n === 1 ? '' : 's'} now? There is no undo and no recovery.`,
+    [
+      {label:'Delete permanently', action:() => { closeModal(); deleteOwnedAccount(); }},
+      {label:'Keep my account', primary:true, action:closeModal}
+    ]);
+}
+
+// Removes the account and its data, then signs out. Filters by object identity
+// for the user and by ownerId for the projects, so neither can reach across to
+// another account.
+function deleteOwnedAccount() {
+  const me = S.user;
+  if (!me) return;
+  const email = me.email;
+  const n = DB.projects.filter(p => p.ownerId === me.id).length;
+
+  DB.projects = DB.projects.filter(p => p.ownerId !== me.id);
+  DB.users = DB.users.filter(u => u !== me);
+  try { localStorage.removeItem(backupKeyFor(me.id)); } catch (_) {}
+
+  // Clear the session BEFORE saving, so nothing can re-resolve the deleted
+  // account, then persist and return to Level 1.
+  doLogout();
+  saveDB();
+  renderAccountList();
+  setAlert('login-alert', `Account ${escHtml(email)} and its ${n} project${n === 1 ? '' : 's'} were deleted.`, 'info');
 }
 
 // ================================================================
@@ -5169,6 +5525,32 @@ renderAccountList();
   limit; the renames are reported. migrateProjects() runs on incoming projects,
   so a backup written by an older build lands on the current schema.
 
+  BACKUP FOLDER
+  By default backups download to the browser's download folder. "Choose folder"
+  uses showDirectoryPicker() to set a folder once and reuse it every time; the
+  FileSystemDirectoryHandle is kept in IndexedDB (it is structured-cloneable but
+  not JSON-serialisable, so localStorage cannot hold it) under sheetindex-fs.
+  Only the handle is stored there — no project data, no credentials.
+
+  Hard constraints, which is why the folder row is hidden when unavailable:
+    • Chromium desktop only (Chrome/Edge/Opera). Firefox and Safari ship only
+      the Origin Private File System, with no local-disk pickers. No mobile
+      browser exposes them.
+    • Secure context required — works on the GitHub Pages URL, NOT on file://.
+    • Write permission may need re-granting after a reload, and
+      requestPermission() needs a user gesture, so it happens on the Save click
+      rather than at page load.
+
+  Any folder failure — revoked permission, deleted folder, write error — falls
+  back to a download rather than leaving the user with no backup.
+
+  GOOGLE DRIVE: pick the folder that Google Drive for desktop mounts locally
+  (G:\My Drive\... on Windows, ~/Google Drive/... on macOS); files written
+  there sync like any other Drive file. This is deliberately NOT the Drive API,
+  which would require an OAuth client and a token this app must never hold.
+  Without Drive for desktop, point the browser's own download folder at a Drive
+  folder for the same effect.
+
   A reminder appears on Level 2 (and a "Backup due" pill in the sidebar) when
   project data has changed since the last backup AND the last one is missing or
   older than BACKUP_STALE_MS (7 days). It is triggered by changed data, not the
@@ -5180,6 +5562,30 @@ renderAccountList();
   localStorage as the cache, and keep the file somewhere already backed up.
   Automatic writes to the same file on disk would need the File System Access
   API, which is Chromium-desktop-only and requires HTTPS.
+
+  DELETE ACCOUNT (Level 2)
+  Deletes the signed-in account and every project it owns. Three gates, because
+  it is irreversible: the account's own password must be typed (being signed in
+  is not enough — an unlocked machine would otherwise be one click from data
+  loss), the project count is stated with an offer to back up first, and a final
+  confirmation names what is about to go. Scoped by owner throughout, so other
+  accounts on the computer are untouched. Deleting the last account leaves
+  DB.users empty and the demo seed recreates demo@firm.com on the next load, so
+  the app is never left unusable.
+
+  PASSWORD RECOVERY — WHAT IS NOT POSSIBLE
+  Passwords CANNOT be emailed. A page served as static files has no mail server,
+  and calling a third-party mail API from the browser would require embedding a
+  secret key in this file — which, on a public GitHub Pages repo, is published to
+  the world and immediately abusable. There is no version of "send the password
+  to the account email" that is safe from a static page.
+
+  "Forgot password?" therefore shows the password on screen and says so plainly.
+  (Earlier copy claimed a reset link had been sent; that was never true and has
+  been corrected.) Anyone at the computer can use it, so it is a convenience, not
+  a security feature. Real reset email needs an auth backend — Supabase Auth and
+  Firebase Auth both provide it, along with hashed passwords, which would also
+  fix the plaintext storage noted below.
 
   ACCOUNTS
   Any number of accounts can be saved in this browser, and each one's data is
