@@ -603,29 +603,61 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
   text-transform:uppercase;letter-spacing:0.6px;margin-bottom:9px;
 }
 .acct-row{
-  width:100%;text-align:left;display:grid;
-  grid-template-columns:1fr auto;grid-template-areas:"name count" "email count";
-  column-gap:10px;align-items:center;
+  display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-  padding:8px 11px;margin-bottom:6px;cursor:pointer;transition:all .12s;
-  font-family:var(--sans);color:var(--text);
+  padding:7px 8px 7px 11px;margin-bottom:6px;transition:all .12s;
 }
-.acct-row:hover{border-color:var(--accent);background:var(--accent-light)}
-.acct-row:active{transform:scale(0.995)}
+.acct-row:hover{border-color:var(--border2)}
+.acct-row.is-idle{background:var(--amber-bg);border-color:#EBD3A8}
+.acct-main{
+  display:flex;flex-direction:column;gap:1px;text-align:left;min-width:0;
+  background:none;border:none;padding:0;cursor:pointer;font-family:var(--sans);color:var(--text);
+}
 .acct-name{
-  grid-area:name;font-size:12.5px;font-weight:600;font-family:var(--display);
-  letter-spacing:-0.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.acct-email{
-  grid-area:email;font-size:10.5px;color:var(--text3);font-family:var(--mono);
+  font-size:12.5px;font-weight:600;font-family:var(--display);letter-spacing:-0.1px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.acct-count{
-  grid-area:count;font-size:10px;color:var(--text2);font-family:var(--mono);
-  background:var(--surface2);border:1px solid var(--border);border-radius:20px;
-  padding:3px 8px;white-space:nowrap;flex-shrink:0;
+.acct-lock{
+  font-family:var(--mono);font-size:9.5px;font-weight:400;color:var(--text3);
+  margin-left:6px;letter-spacing:0;
 }
-.acct-row:hover .acct-count{background:var(--surface);border-color:var(--border2)}
+.acct-email{
+  font-size:10.5px;color:var(--text3);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.acct-meta{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0}
+.acct-count{
+  font-size:10px;color:var(--text2);font-family:var(--mono);
+  background:var(--surface2);border:1px solid var(--border);border-radius:20px;
+  padding:2px 8px;white-space:nowrap;
+}
+.acct-when{font-size:9.5px;color:var(--text3);font-family:var(--mono);white-space:nowrap}
+.acct-when.is-idle{color:var(--amber);font-weight:600}
+/* Separate, small target. A row that both opens and deletes is how a profile
+   gets deleted by mis-click. */
+.acct-del{
+  flex-shrink:0;width:22px;height:22px;line-height:1;padding:0;
+  background:none;border:1px solid transparent;border-radius:var(--radius);
+  color:var(--text3);font-size:15px;cursor:pointer;transition:all .12s;
+}
+.acct-del:hover{background:var(--red-bg);border-color:#F7C1C1;color:var(--red)}
+.acct-idle-note{
+  font-size:10.5px;color:var(--amber);line-height:1.45;font-family:var(--mono);
+  background:var(--amber-bg);border:1px solid #EBD3A8;border-radius:var(--radius);
+  padding:8px 10px;margin-top:8px;
+}
+/* Honest framing block + optional-field labels. */
+.honest-note{
+  font-size:11px;color:var(--text2);line-height:1.55;margin-top:18px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px 12px;
+}
+.honest-note strong{color:var(--text);font-weight:600}
+.profile-open{margin-top:22px}
+.lbl-opt{
+  font-family:var(--mono);font-size:9.5px;font-weight:400;color:var(--text3);
+  text-transform:none;letter-spacing:0;margin-left:5px;
+}
 .acct-note{font-size:10.5px;color:var(--text3);line-height:1.45;margin-top:8px;font-family:var(--mono)}
 
 /* ── LEVEL 2: DATA BACKUP ────────────────────────────────────────────
@@ -748,29 +780,38 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     <div class="login-sub">Construction Document Sheet Index</div>
     <div id="login-alert"></div>
     <div id="form-login">
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input id="li-email" class="form-input" type="email" placeholder="demo@firm.com" autocomplete="email"/>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input id="li-pass" class="form-input" type="password" placeholder="password"/>
-      </div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doLogin()">Sign in</button>
-      <div style="text-align:center;font-size:12px;color:var(--text3)">
-        <a href="#" onclick="showRegister()" style="color:var(--text2);text-decoration:none">Create account</a>
-        &nbsp;·&nbsp;
-        <a href="#" onclick="showRecover()" style="color:var(--text2);text-decoration:none">Forgot password?</a>
+      <!-- Profiles, not accounts. A profile separates one person's project set
+           from another's on this computer; it is NOT a security boundary, and
+           the copy below says so rather than implying protection that does not
+           exist. See the PROFILES note in the README. -->
+      <div id="acct-list-wrap" style="display:none">
+        <div class="acct-head">Profiles On This Computer</div>
+        <div id="acct-list"></div>
       </div>
 
-      <!-- Accounts already saved in this browser. Populated by
-           renderAccountList(); hidden when the demo seed is the only one.
-           Picking a row fills in the email — it never signs anyone in. -->
-      <div id="acct-list-wrap" style="display:none">
-        <div class="acct-head">Accounts On This Computer</div>
-        <div id="acct-list"></div>
-        <div class="acct-note">Each account keeps its own projects, packages and sheets.
-          Sign in with that account's password to open its work.</div>
+      <div class="profile-open">
+        <div class="acct-head">Open A Profile</div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input id="li-email" class="form-input" type="email" placeholder="demo@firm.com" autocomplete="email"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password <span class="lbl-opt">if this profile has one</span></label>
+          <input id="li-pass" class="form-input" type="password" placeholder="Leave blank if none"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin()}"/>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doLogin()">Open profile</button>
+        <div style="text-align:center;font-size:12px;color:var(--text3)">
+          <a href="#" onclick="showRegister()" style="color:var(--text2);text-decoration:none">Create a new profile</a>
+        </div>
+      </div>
+
+      <div class="honest-note">
+        Profiles keep separate project sets on this computer. <strong>They are not
+        security.</strong> Anyone who can open this app can read every profile's
+        projects, with or without a password — a password here is only a guard
+        against opening the wrong profile by mistake. Keep confidential work off
+        shared computers, and keep backup files somewhere protected.
       </div>
     </div>
     <div id="form-register" style="display:none">
@@ -783,36 +824,27 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
         <input id="reg-email" class="form-input" type="email" placeholder="architect@firm.com"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
-        <input id="reg-pass" class="form-input" type="password" placeholder="Min 8 characters"
+        <label class="form-label">Password <span class="lbl-opt">optional</span></label>
+        <input id="reg-pass" class="form-input" type="password" placeholder="Leave blank for one-click opening"
                oninput="renderRegMatch()"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm Password</label>
+        <label class="form-label">Confirm Password <span class="lbl-opt">only if you set one</span></label>
         <input id="reg-pass2" class="form-input" type="password" placeholder="Re-enter password"
                oninput="renderRegMatch()"
                onkeydown="if(event.key==='Enter'){event.preventDefault();doRegister()}"/>
         <div id="reg-match-hint" style="font-size:11px;margin-top:4px"></div>
       </div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRegister()">Create account</button>
+      <div class="honest-note" style="margin:0 0 12px">
+        A password here stops you opening the wrong profile by mistake. It does
+        not protect the data — anyone at this computer can read every profile
+        either way. If you set one and forget it, restore a backup file into a
+        new profile; there is no reset email, because a browser-only app has no
+        mail server to send from.
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRegister()">Create profile</button>
       <div style="text-align:center;font-size:12px">
-        <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to sign in</a>
-      </div>
-    </div>
-    <div id="form-recover" style="display:none">
-      <div class="form-group">
-        <label class="form-label">Account email</label>
-        <input id="rec-email" class="form-input" type="email" placeholder="architect@firm.com"/>
-      </div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:12px" onclick="doRecover()">Show my password</button>
-      <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px">
-        This shows your password on screen. It cannot be emailed — SheetIndex runs
-        entirely in your browser with no mail server, so there is nothing to send
-        from. Anyone at this computer can use this, so treat it as a convenience,
-        not a security feature.
-      </div>
-      <div style="text-align:center;font-size:12px">
-        <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to sign in</a>
+        <a href="#" onclick="showLogin()" style="color:var(--text2);text-decoration:none">Back to profiles</a>
       </div>
     </div>
   </div>
@@ -1164,6 +1196,7 @@ function touchLastUpdated() {
   const ms = Date.now();
   try { localStorage.setItem('si_last_update_ms', String(ms)); } catch (_) {}
   renderLastUpdated(ms);
+  touchProfileActivity();
   // Backup staleness is measured against this stamp, so refreshing here is what
   // keeps the reminder honest no matter which level triggered the save —
   // including Level 5 sheet edits, which never touch renderSavedProjects().
@@ -1522,6 +1555,40 @@ function findOwnedProject(id) {
   return DB.projects.find(p => p.id === id && p.ownerId === S.user.id) || null;
 }
 
+// ── Profile activity ──────────────────────────────────────────────
+// si_last_update_ms is global to the browser, so it cannot tell which profile
+// was used. Idleness is therefore tracked per profile under its own key, set on
+// open and on every save. A profile with no stamp falls back to its creation
+// time, so profiles made before this existed still report something truthful
+// rather than reading as active today.
+const LAST_ACTIVE_KEY = 'si_last_active_ms';
+const IDLE_MS = 60 * 24 * 60 * 60 * 1000;   // 60 days
+
+function activeKeyFor(userId) { return `${LAST_ACTIVE_KEY}:${userId || 'unknown'}`; }
+function touchProfileActivity() {
+  if (!S.user) return;
+  try { localStorage.setItem(activeKeyFor(S.user.id), String(Date.now())); } catch (_) {}
+}
+function profileLastActive(user) {
+  const raw = Number(localStorage.getItem(activeKeyFor(user.id))) || 0;
+  return raw || Number(user.created) || 0;
+}
+function profileIdleMs(user) {
+  const last = profileLastActive(user);
+  return last ? (Date.now() - last) : 0;
+}
+// Short human phrase for the picker row.
+function idlePhrase(user) {
+  const last = profileLastActive(user);
+  if (!last) return 'never opened';
+  const days = Math.floor((Date.now() - last) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return 'used today';
+  if (days === 1) return 'used yesterday';
+  if (days < 30) return `used ${days} days ago`;
+  const months = Math.floor(days / 30);
+  return `idle ${months} month${months === 1 ? '' : 's'}`;
+}
+
 // How many projects each account on this computer has, for the Level 1 list.
 function accountsOnThisComputer() {
   return DB.users
@@ -1530,7 +1597,10 @@ function accountsOnThisComputer() {
       name: u.name || u.email,
       email: u.email,
       projects: DB.projects.filter(p => p.ownerId === u.id).length,
-      created: u.created || 0
+      created: u.created || 0,
+      locked: hasPassword(u),
+      idle: profileIdleMs(u) > IDLE_MS,
+      when: idlePhrase(u)
     }))
     .sort((a, b) => a.created - b.created);
 }
@@ -1543,35 +1613,38 @@ function renderAccountList() {
   const wrap = document.getElementById('acct-list-wrap');
   const list = document.getElementById('acct-list');
   if (!wrap || !list) return;
-  // The list belongs to the sign-in form only — it would be noise beside the
-  // create-account and password-recovery forms.
+  // The list belongs to the profile chooser only — it would be noise beside the
+  // create-profile form.
   const loginForm = document.getElementById('form-login');
   if (loginForm && loginForm.style.display === 'none') {
     wrap.style.display = 'none';
     return;
   }
   const accts = accountsOnThisComputer();
-  // Nothing useful to show when the only account is the untouched demo seed.
-  if (accts.length <= 1 && accts.every(a => a.id === 'demo' && !a.projects)) {
-    wrap.style.display = 'none';
-    list.innerHTML = '';
-    return;
-  }
+  if (!accts.length) { wrap.style.display = 'none'; list.innerHTML = ''; return; }
   wrap.style.display = '';
+  const idleCount = accts.filter(a => a.idle).length;
   list.innerHTML = accts.map(a => {
     const n = a.projects;
-    return `<button type="button" class="acct-row" onclick="useAccount('${escHtml(a.id)}')"
-      title="Fill the sign-in form with ${escHtml(a.email)}">
-      <span class="acct-name">${escHtml(a.name)}</span>
-      <span class="acct-email">${escHtml(a.email)}</span>
-      <span class="acct-count">${n} project${n === 1 ? '' : 's'}</span>
-    </button>`;
-  }).join('');
+    // Open button and delete button are separate controls, deliberately: a
+    // single row that both opens and deletes is how someone deletes a profile
+    // by mis-clicking. Delete is a small, separate, red-on-hover target.
+    return `<div class="acct-row${a.idle ? ' is-idle' : ''}">
+      <button type="button" class="acct-main" onclick="useAccount('${escHtml(a.id)}')"
+        title="${a.locked ? 'Enter this profile\u2019s password to open it' : 'Open this profile'}">
+        <span class="acct-name">${escHtml(a.name)}${a.locked ? '<span class="acct-lock" title="Has a password">\u2022 password</span>' : ''}</span>
+        <span class="acct-email">${escHtml(a.email)}</span>
+      </button>
+      <span class="acct-meta">
+        <span class="acct-count">${n} project${n === 1 ? '' : 's'}</span>
+        <span class="acct-when${a.idle ? ' is-idle' : ''}">${escHtml(a.when)}</span>
+      </span>
+      <button type="button" class="acct-del" onclick="confirmDeleteProfile('${escHtml(a.id)}')"
+        title="Delete this profile and all of its projects">\u00d7</button>
+    </div>`;
+  }).join('') + (idleCount ? `<div class="acct-idle-note">${idleCount} profile${idleCount === 1 ? '' : 's'} ${idleCount === 1 ? 'has' : 'have'} not been opened in over 60 days. Deleting ${idleCount === 1 ? 'it' : 'them'} removes ${idleCount === 1 ? 'its' : 'their'} projects permanently \u2014 save a backup first if you are not certain.</div>` : '');
 }
 
-// Picking an account only pre-fills the email and focuses the password box.
-// It never signs anyone in — each account still needs its own password, which
-// is what keeps two people sharing a computer separated.
 function useAccount(id) {
   const u = DB.users.find(x => x.id === id);
   if (!u) return;
@@ -1579,7 +1652,17 @@ function useAccount(id) {
   const emailEl = document.getElementById('li-email');
   const passEl = document.getElementById('li-pass');
   if (emailEl) emailEl.value = u.email;
-  if (passEl) { passEl.value = ''; passEl.focus(); }
+  if (passEl) passEl.value = '';
+  // No password means no question to ask — open it. Pretending otherwise was
+  // the theatre this change removes. When one IS set, prefill the email and
+  // focus the password box; the row never opens a protected profile directly.
+  if (!hasPassword(u)) {
+    S.user = u;
+    postLogin();
+    return;
+  }
+  if (passEl) passEl.focus();
+  setAlert('login-alert', `Enter the password for ${escHtml(u.email)}.`, 'info');
 }
 
 // ================================================================
@@ -1588,7 +1671,6 @@ function useAccount(id) {
 function showLogin() {
   document.getElementById('form-login').style.display = '';
   document.getElementById('form-register').style.display = 'none';
-  document.getElementById('form-recover').style.display = 'none';
   setAlert('login-alert', '');
   renderAccountList();
 }
@@ -1611,14 +1693,6 @@ function showRegister() {
   renderRegMatch();
   document.getElementById('form-login').style.display = 'none';
   document.getElementById('form-register').style.display = '';
-  document.getElementById('form-recover').style.display = 'none';
-  setAlert('login-alert', '');
-  renderAccountList();
-}
-function showRecover() {
-  document.getElementById('form-login').style.display = 'none';
-  document.getElementById('form-register').style.display = 'none';
-  document.getElementById('form-recover').style.display = '';
   setAlert('login-alert', '');
   renderAccountList();
 }
@@ -1630,12 +1704,24 @@ function doLogin() {
   // ordinary sign-in.
   const email = document.getElementById('li-email').value.trim();
   const pass = document.getElementById('li-pass').value;
-  if (!normalizeEmail(email) || !pass) { setAlert('login-alert', 'Please enter email and password.', 'danger'); return; }
-  // Identity is matched case-insensitively; the password still has to be exact.
+  if (!normalizeEmail(email)) { setAlert('login-alert', 'Enter the profile\'s email address.', 'danger'); return; }
   const user = findUserByEmail(email);
-  if (!user || user.pass !== pass) { setAlert('login-alert', 'Incorrect email or password.', 'danger'); return; }
+  if (!user) { setAlert('login-alert', 'No profile on this computer uses that email.', 'danger'); return; }
+  // A profile may have no password at all — that is a supported state, not a
+  // misconfiguration, because the password was never protecting the data. When
+  // one IS set it must match exactly; when none is set, anything typed in the
+  // box is ignored rather than treated as a failure.
+  if (hasPassword(user) && user.pass !== pass) {
+    setAlert('login-alert', 'That password does not match this profile.', 'danger');
+    return;
+  }
   S.user = user;
   postLogin();
+}
+
+// A profile is password-protected only if it holds a non-empty password.
+function hasPassword(user) {
+  return !!(user && typeof user.pass === 'string' && user.pass.length > 0);
 }
 
 function doRegister() {
@@ -1643,15 +1729,21 @@ function doRegister() {
   const email = normalizeEmail(document.getElementById('reg-email').value);
   const pass = document.getElementById('reg-pass').value;
   const pass2 = document.getElementById('reg-pass2').value;
-  if (!name || !email || !pass || !pass2) { setAlert('login-alert', 'All fields required.', 'danger'); return; }
-  if (pass.length < 8) { setAlert('login-alert', 'Password must be at least 8 characters.', 'danger'); return; }
-  // Compared before anything is written. There is no password-reset path that
-  // can reach a real mailbox from a static page, so a typo in the password
-  // would lock the account out of its own projects permanently — which is why
-  // confirmation is a hard requirement rather than a convenience.
-  if (pass !== pass2) {
-    setAlert('login-alert', 'The two passwords do not match.', 'danger');
-    renderRegMatch();
+  if (!name || !email) { setAlert('login-alert', 'Name and email are required.', 'danger'); return; }
+  // The password is optional. Blank means the profile opens in one click, which
+  // is honest about what it was worth. Rules apply only when one is actually set.
+  if (pass) {
+    if (pass.length < 8) { setAlert('login-alert', 'If you set a password it must be at least 8 characters. Leave it blank for no password.', 'danger'); return; }
+    // Confirmed before anything is written: there is no reset path that can
+    // reach a mailbox from a static page, so a typo would mean restoring a
+    // backup into a new profile to get back in.
+    if (pass !== pass2) {
+      setAlert('login-alert', 'The two passwords do not match.', 'danger');
+      renderRegMatch();
+      return;
+    }
+  } else if (pass2) {
+    setAlert('login-alert', 'Enter the password in the first box, or clear both to create a profile with no password.', 'danger');
     return;
   }
   // One account per email address. Checked case-insensitively, so a case
@@ -1668,27 +1760,12 @@ function doRegister() {
   postLogin();
 }
 
-function doRecover() {
-  const email = document.getElementById('rec-email').value.trim();   // raw: see doLogin
-  if (!normalizeEmail(email)) { setAlert('login-alert', 'Enter your account email.', 'danger'); return; }
-  const user = findUserByEmail(email);
-  if (!user) { setAlert('login-alert', 'No account found with that email.', 'danger'); return; }
-  // Honest wording. The previous copy claimed a reset link had been sent, which
-  // was never true: a page served as static files has no mail server and no
-  // secret it could safely hold to call a mail API from the browser. Real
-  // password-reset email requires an auth backend — see the README.
-  // showLogin() clears #login-alert, so the message must be set AFTER it.
-  // Reversing these two lines is a pre-existing bug: recovery has never
-  // actually displayed anything, because the alert was wiped on the next line.
-  showLogin();
-  setAlert('login-alert', `Password for ${escHtml(user.email)} is "${escHtml(user.pass)}". Nothing was emailed.`, 'info');
-}
-
 function postLogin() {
   unlockUpTo('project');
   document.getElementById('project-info').style.display = '';
   document.getElementById('proj-badge').textContent = S.user.email;
   S.project = null;
+  touchProfileActivity();
   initProject();
   renderSavedProjects();
   renderBackupUI();
@@ -4850,9 +4927,10 @@ function lastBackupMs() {
   if (!S.user) return 0;
   return Number(localStorage.getItem(backupKeyFor(S.user.id))) || 0;
 }
-function markBackupTaken() {
-  if (!S.user) return;
-  try { localStorage.setItem(backupKeyFor(S.user.id), String(Date.now())); } catch (_) {}
+function markBackupTaken(user) {
+  const u = user || S.user;
+  if (!u) return;
+  try { localStorage.setItem(backupKeyFor(u.id), String(Date.now())); } catch (_) {}
   _backupNagDismissed = false;
   renderBackupUI();
 }
@@ -4987,7 +5065,9 @@ async function ensureDirPermission(handle) {
 // Only whitelisted fields, listed explicitly. No object spreading — that is
 // what guarantees a credential cannot reach the file even if one is ever added
 // to the user or project record later.
-function buildBackupPayload() {
+function buildBackupPayload(user) {
+  const u = user || S.user;
+  const projects = ownedProjects(u.id);
   return {
     app: 'SheetIndex',
     kind: BACKUP_KIND,
@@ -4996,30 +5076,36 @@ function buildBackupPayload() {
     createdAtMs: Date.now(),
     // Display only, so you can tell whose backup a file is without opening the
     // projects. Never used to authenticate anything on restore.
-    account: { name: S.user.name || '', email: S.user.email || '' },
-    projectCount: ownedProjects().length,
-    projects: JSON.parse(JSON.stringify(ownedProjects()))
+    account: { name: u.name || '', email: u.email || '' },
+    projectCount: projects.length,
+    projects: JSON.parse(JSON.stringify(projects))
   };
 }
 
 // Filename: sortable, and identifies the account without opening the file.
-function backupFileName() {
-  const who = String((S.user && S.user.email) || 'account').split('@')[0].replace(/[^A-Za-z0-9._-]/g, '') || 'account';
+function backupFileName(user) {
+  const u = user || S.user;
+  const who = String((u && u.email) || 'profile').split('@')[0].replace(/[^A-Za-z0-9._-]/g, '') || 'account';
   return `SheetIndex-backup-${who}-${fmtStampCompact(new Date())}.json`;
 }
 
-async function saveBackupFile() {
-  if (!S.user) return;
-  const n = ownedProjects().length;
+// `user` defaults to the open profile. `alertId` lets the Level 1 delete flow
+// report into #login-alert instead of the Level 2 panel, which is not rendered
+// when nobody is signed in.
+async function saveBackupFile(user, alertId) {
+  const u = user || S.user;
+  if (!u) return false;
+  const target = alertId || (S.user && u.id === S.user.id ? 'backup-alert' : 'login-alert');
+  const n = ownedProjects(u.id).length;
   if (!n) {
-    setAlert('backup-alert', 'There are no projects to back up yet.', 'info');
-    return;
+    setAlert(target, 'There are no projects to back up yet.', 'info');
+    return false;
   }
-  const name = backupFileName();
+  const name = backupFileName(u);
   let fallbackNote = '';   // set when a chosen folder could not be used
   let text;
-  try { text = JSON.stringify(buildBackupPayload(), null, 2); }
-  catch (e) { setAlert('backup-alert', 'Could not build the backup: ' + (e.message || e), 'danger'); return; }
+  try { text = JSON.stringify(buildBackupPayload(u), null, 2); }
+  catch (e) { setAlert(target, 'Could not build the backup: ' + (e.message || e), 'danger'); return false; }
 
   // Chosen folder, if one is set and still permitted. Any failure falls through
   // to the download path rather than leaving the user with no backup at all —
@@ -5034,9 +5120,9 @@ async function saveBackupFile() {
         // Stamp BEFORE reporting: markBackupTaken() repaints the panel, which
         // recreates an empty #backup-alert and would discard a message set
         // first.
-        markBackupTaken();
-        setAlert('backup-alert', `Backup saved to “${escHtml(_backupDir.name)}” as ${escHtml(name)} — ${n} project${n === 1 ? '' : 's'}.`, 'success');
-        return;
+        markBackupTaken(u);
+        setAlert(target, `Backup saved to “${escHtml(_backupDir.name)}” as ${escHtml(name)} — ${n} project${n === 1 ? '' : 's'}.`, 'success');
+        return true;
       }
       fallbackNote = `Write permission for “${escHtml(_backupDir.name)}” was not granted, so the backup was downloaded instead.`;
     } catch (e) {
@@ -5046,14 +5132,20 @@ async function saveBackupFile() {
 
   try {
     dl(text, name, 'application/json');
-    markBackupTaken();
-    setAlert('backup-alert',
+    markBackupTaken(u);
+    setAlert(target,
       fallbackNote || `Backup saved — ${n} project${n === 1 ? '' : 's'}. Keep it somewhere already backed up, not just in Downloads.`,
       fallbackNote ? 'info' : 'success');
+    return true;
   } catch (e) {
-    setAlert('backup-alert', 'Could not create the backup file: ' + (e.message || e), 'danger');
+    setAlert(target, 'Could not create the backup file: ' + (e.message || e), 'danger');
+    return false;
   }
 }
+
+// Named alias used by the Level 1 delete flow, so the intent is legible at the
+// call site rather than reading as a stray argument.
+function saveBackupFileFor(user) { return saveBackupFile(user, 'login-alert'); }
 
 // ── Restore ───────────────────────────────────────────────────────
 function pickBackupFile() {
@@ -5295,15 +5387,16 @@ function renderBackupUI() {
       <div id="backup-alert"></div>
 
       <div class="bk-danger">
-        <div class="bk-danger-head">Delete Account</div>
+        <div class="bk-danger-head">Delete This Profile</div>
         <div class="bk-note">Permanently deletes <strong>${escHtml(S.user.email)}</strong> and
-          ${n === 0 ? 'its data' : `its ${n} project${n === 1 ? '' : 's'}`}. Other accounts on this
-          computer are not affected. This cannot be undone.</div>
+          ${n === 0 ? 'its data' : `its ${n} project${n === 1 ? '' : 's'}`}. Other profiles on this
+          computer are not affected. This cannot be undone — save a backup first if you
+          might want the work back.</div>
         <div class="bk-row">
-          <input id="del-acct-pass" class="form-input bk-pass" type="password" autocomplete="off"
-                 placeholder="Confirm your password"
+          <input id="del-acct-pass" class="form-input bk-pass" type="email" autocomplete="off"
+                 spellcheck="false" placeholder="Type ${escHtml(S.user.email)} to confirm"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();confirmDeleteAccount()}"/>
-          <button class="btn btn-sm btn-danger" onclick="confirmDeleteAccount()">Delete Account</button>
+          <button class="btn btn-sm btn-danger" onclick="confirmDeleteAccount()">Delete Profile</button>
         </div>
         <div id="acct-danger-alert"></div>
       </div>`;
@@ -5345,27 +5438,34 @@ function renderBackupUI() {
 */
 function confirmDeleteAccount() {
   if (!S.user) return;
+  // Gated on the EMAIL, not the password. A profile may have no password at all
+  // now, and a password never protected the data anyway — what this gate is for
+  // is proving the action was deliberate, which typing the address does and a
+  // mis-click cannot.
   const pw = document.getElementById('del-acct-pass');
-  const typed = pw ? pw.value : '';
+  const typed = pw ? pw.value.trim() : '';
   if (pw) pw.value = '';
-  if (!typed) { setAlert('acct-danger-alert', 'Enter your password to delete this account.', 'danger'); return; }
-  if (typed !== S.user.pass) { setAlert('acct-danger-alert', 'That password is not correct.', 'danger'); return; }
+  if (!typed) { setAlert('acct-danger-alert', 'Type this profile\'s email address to delete it.', 'danger'); return; }
+  if (normalizeEmail(typed) !== normalizeEmail(S.user.email)) {
+    setAlert('acct-danger-alert', `That does not match ${escHtml(S.user.email)}.`, 'danger');
+    return;
+  }
   setAlert('acct-danger-alert', '');
 
   const n = ownedProjects().length;
   const others = DB.users.length - 1;
-  showModal('Delete this account?',
+  showModal('Delete this profile?',
     `${S.user.email}\n\n`
-    + `This permanently deletes the account and ${
+    + `This permanently deletes the profile and ${
         n === 0 ? 'nothing else — it has no projects'
                 : `its ${n} project${n === 1 ? '' : 's'}, including every discipline, package, sheet and Volume assignment`}.\n\n`
     + (others > 0
-        ? `The other ${others} account${others === 1 ? '' : 's'} on this computer ${others === 1 ? 'is' : 'are'} not affected.\n\n`
-        : `This is the only account on this computer. A fresh demo account will be created next time the app loads.\n\n`)
+        ? `The other ${others} profile${others === 1 ? '' : 's'} on this computer ${others === 1 ? 'is' : 'are'} not affected.\n\n`
+        : `This is the only profile on this computer. A fresh demo profile will be created next time the app loads.\n\n`)
     + `This cannot be undone.`,
     [
       n ? {label:'Save a backup first', primary:true, action:async () => { closeModal(); await saveBackupFile(); confirmDeleteAccountFinal(); }} : null,
-      {label:'Delete account', primary:!n, action:() => { closeModal(); confirmDeleteAccountFinal(); }},
+      {label:'Delete profile', primary:!n, action:() => { closeModal(); confirmDeleteAccountFinal(); }},
       {label:'Cancel', action:closeModal}
     ].filter(Boolean));
 }
@@ -5377,7 +5477,7 @@ function confirmDeleteAccountFinal() {
     `Delete ${S.user.email} and ${n} project${n === 1 ? '' : 's'} now? There is no undo and no recovery.`,
     [
       {label:'Delete permanently', action:() => { closeModal(); deleteOwnedAccount(); }},
-      {label:'Keep my account', primary:true, action:closeModal}
+      {label:'Keep my profile', primary:true, action:closeModal}
     ]);
 }
 
@@ -5392,14 +5492,120 @@ function deleteOwnedAccount() {
 
   DB.projects = DB.projects.filter(p => p.ownerId !== me.id);
   DB.users = DB.users.filter(u => u !== me);
-  try { localStorage.removeItem(backupKeyFor(me.id)); } catch (_) {}
+  try {
+    localStorage.removeItem(backupKeyFor(me.id));
+    localStorage.removeItem(activeKeyFor(me.id));
+  } catch (_) {}
 
   // Clear the session BEFORE saving, so nothing can re-resolve the deleted
   // account, then persist and return to Level 1.
   doLogout();
   saveDB();
   renderAccountList();
-  setAlert('login-alert', `Account ${escHtml(email)} and its ${n} project${n === 1 ? '' : 's'} were deleted.`, 'info');
+  setAlert('login-alert', `Profile ${escHtml(email)} and its ${n} project${n === 1 ? '' : 's'} were deleted.`, 'info');
+}
+
+// ================================================================
+// DELETE PROFILE — LEVEL 1
+// ================================================================
+/*
+  Deletes a profile WITHOUT opening it. This exists because the previous design
+  required signing in to delete, which made an abandoned profile whose password
+  nobody remembers permanently undeletable — the exact case this is for.
+
+  There is no password gate, and that is the honest position: a password never
+  protected the data, so requiring one here would only block the legitimate
+  cleanup while stopping nobody. The gate is DELIBERATENESS instead — the exact
+  email must be typed, which cannot be produced by a mis-click — plus a stated
+  project count, an idle age, an offer to back up first, and a final
+  confirmation. Backing up needs no password either, which is what makes this
+  safe to allow: nothing is unrecoverable if a file is written first.
+*/
+let _pendingProfileDelete = null;
+
+function confirmDeleteProfile(id) {
+  const u = DB.users.find(x => x.id === id);
+  if (!u) return;
+  _pendingProfileDelete = id;
+  const n = DB.projects.filter(p => p.ownerId === u.id).length;
+  const idle = profileIdleMs(u) > IDLE_MS;
+  const isMe = !!(S.user && S.user.id === u.id);
+
+  showModal('Delete this profile?',
+    `${u.name || u.email}\n${u.email}\n\n`
+    + `${n === 0 ? 'This profile has no projects.' : `${n} project${n === 1 ? '' : 's'} will be deleted, with every discipline, package, sheet and Volume assignment in ${n === 1 ? 'it' : 'them'}.`}\n`
+    + `Last used: ${idlePhrase(u)}.\n\n`
+    + (idle
+        ? `This profile looks abandoned, but "idle" is not "empty" — an old project is still someone's work. Save a backup before deleting unless you are certain nobody needs it.\n\n`
+        : `${n ? 'This profile is in active use.\n\n' : ''}`)
+    + (isMe ? `This is the profile you have open. Deleting it will close your session.\n\n` : '')
+    + `There is no undo. To continue, type the profile's email address exactly.`,
+    [
+      n ? {label:'Save a backup first', primary:true, action:async () => { closeModal(); await saveBackupFileFor(u); promptProfileDeleteEmail(id); }} : null,
+      {label:'Continue', primary:!n, action:() => { closeModal(); promptProfileDeleteEmail(id); }},
+      {label:'Cancel', action:() => { closeModal(); _pendingProfileDelete = null; }}
+    ].filter(Boolean));
+}
+
+// The typed-email gate. Rendered as a prompt rather than a plain confirm so the
+// address has to be reproduced, not just acknowledged.
+function promptProfileDeleteEmail(id) {
+  const u = DB.users.find(x => x.id === id);
+  if (!u) { _pendingProfileDelete = null; return; }
+  showModal('Type the email to confirm',
+    `Deleting ${u.email} and all of its projects, permanently.\n\nType the address exactly to confirm.`,
+    [
+      {label:'Delete profile', action:() => {
+        const el = document.getElementById('del-profile-email');
+        const typed = el ? el.value.trim() : '';
+        if (normalizeEmail(typed) !== normalizeEmail(u.email)) {
+          const err = document.getElementById('del-profile-err');
+          if (err) err.textContent = 'That does not match ' + u.email;
+          return;   // modal deliberately stays open
+        }
+        closeModal();
+        deleteProfileById(id);
+      }},
+      {label:'Cancel', primary:true, action:() => { closeModal(); _pendingProfileDelete = null; }}
+    ]);
+  // Injected after showModal has written the body, so it is not overwritten.
+  const body = document.getElementById('modal-body');
+  if (body) {
+    const wrap = document.createElement('div');
+    wrap.style.marginTop = '12px';
+    wrap.innerHTML = `<input id="del-profile-email" class="form-input" type="email" autocomplete="off"
+        spellcheck="false" placeholder="${escHtml(u.email)}" style="width:100%;font-family:var(--mono);font-size:12px"/>
+      <div id="del-profile-err" style="font-size:11px;color:var(--red);margin-top:5px"></div>`;
+    body.appendChild(wrap);
+    const input = document.getElementById('del-profile-email');
+    if (input) input.focus();
+  }
+}
+
+// Removes one profile and its projects. Filters the user by object identity, so
+// a legacy pair of profiles differing only by email case cannot both go.
+function deleteProfileById(id) {
+  const u = DB.users.find(x => x.id === id);
+  _pendingProfileDelete = null;
+  if (!u) return;
+  const email = u.email;
+  const n = DB.projects.filter(p => p.ownerId === u.id).length;
+  const wasMe = !!(S.user && S.user.id === u.id);
+
+  DB.projects = DB.projects.filter(p => p.ownerId !== u.id);
+  DB.users = DB.users.filter(x => x !== u);
+  try {
+    localStorage.removeItem(backupKeyFor(u.id));
+    localStorage.removeItem(activeKeyFor(u.id));
+  } catch (_) {}
+
+  // Clear the session first if we just deleted the open profile, so nothing can
+  // re-resolve it, then persist.
+  if (wasMe) doLogout();
+  saveDB();
+  renderAccountList();
+  if (!wasMe && S.user) { renderSavedProjects(); renderBackupUI(); }
+  setAlert('login-alert', `Profile ${escHtml(email)} and its ${n} project${n === 1 ? '' : 's'} were deleted.`, 'info');
 }
 
 // ================================================================
@@ -5563,32 +5769,67 @@ renderAccountList();
   Automatic writes to the same file on disk would need the File System Access
   API, which is Chromium-desktop-only and requires HTTPS.
 
-  DELETE ACCOUNT (Level 2)
-  Deletes the signed-in account and every project it owns. Three gates, because
-  it is irreversible: the account's own password must be typed (being signed in
-  is not enough — an unlocked machine would otherwise be one click from data
-  loss), the project count is stated with an offer to back up first, and a final
-  confirmation names what is about to go. Scoped by owner throughout, so other
-  accounts on the computer are untouched. Deleting the last account leaves
-  DB.users empty and the demo seed recreates demo@firm.com on the next load, so
-  the app is never left unusable.
+  PROFILES, NOT ACCOUNTS — AND WHY
+  Level 1 is a profile chooser, not a login. That wording is deliberate. The
+  password never protected anything: every profile's projects sit in si_projects
+  in the same browser profile, so anyone who can open this app can read all of
+  them from DevTools without signing in to anything. A login screen that implies
+  protection it does not provide is worse than no login screen, because it
+  invites putting confidential work somewhere it is not actually safe.
 
-  PASSWORD RECOVERY — WHAT IS NOT POSSIBLE
-  Passwords CANNOT be emailed. A page served as static files has no mail server,
-  and calling a third-party mail API from the browser would require embedding a
-  secret key in this file — which, on a public GitHub Pages repo, is published to
-  the world and immediately abusable. There is no version of "send the password
-  to the account email" that is safe from a static page.
+  So the password is OPTIONAL. Blank means the profile opens in one click.
+  Setting one guards against opening the wrong profile by mistake and nothing
+  more, and the Level 1 copy says exactly that. hasPassword(user) is the single
+  test for whether a profile has one; doLogin() ignores whatever is typed in the
+  password box for a profile that has none, rather than treating it as a failure.
 
-  "Forgot password?" therefore shows the password on screen and says so plainly.
-  (Earlier copy claimed a reset link had been sent; that was never true and has
-  been corrected.) Anyone at the computer can use it, so it is a convenience, not
-  a security feature. Real reset email needs an auth backend — Supabase Auth and
-  Firebase Auth both provide it, along with hashed passwords, which would also
-  fix the plaintext storage noted below.
+  The password-recovery flow was REMOVED, not fixed. Passwords cannot be emailed
+  from a static page: there is no mail server, and calling a mail API from the
+  browser would mean embedding a secret key in this file, which on a public
+  GitHub Pages repo is published to the world. The previous flow claimed "Reset
+  link sent" while actually printing the password on screen — and, because
+  showLogin() cleared #login-alert on the very next line, it printed nothing at
+  all. With optional passwords the whole feature is moot: if you set one and
+  forget it, restore a backup file into a new profile. Real reset email needs an
+  auth backend (Supabase Auth, Firebase Auth), which would also replace the
+  plaintext password storage noted below.
 
-  ACCOUNTS
-  Any number of accounts can be saved in this browser, and each one's data is
+  DELETE PROFILE
+  Two routes, both gated on typing the profile's EMAIL rather than its password.
+  A password may not exist, and one never protected the data — what the gate is
+  for is proving the action was deliberate, which typing an address does and a
+  mis-click cannot. The email comparison is case-insensitive.
+
+    Level 2  deletes the OPEN profile. Type its email, then confirm twice.
+
+    Level 1  deletes ANY profile without opening it, via the × on its row. This
+             route exists because requiring sign-in made an abandoned profile
+             whose password nobody remembers permanently undeletable — the exact
+             case cleanup is for. Gates: a first modal stating the project count
+             and last-used age with an offer to back up first, then the typed
+             email, then the delete. Backing up needs no password either, which
+             is what makes deleting without one safe to allow: nothing is
+             unrecoverable if a file is written first.
+
+  Both routes scope by owner for projects and by object identity for the user
+  record, so a legacy pair of profiles differing only by email case can be
+  deleted one at a time. Per-profile si_last_backup_ms and si_last_active_ms keys
+  are removed with their profile. Deleting the open profile closes the session;
+  deleting another leaves it intact. Deleting the last profile leaves DB.users
+  empty and the demo seed recreates demo@firm.com on the next load, so the app is
+  never left unusable.
+
+  IDLE PROFILES
+  si_last_update_ms is global to the browser and cannot say which profile was
+  used, so activity is tracked per profile under si_last_active_ms:<userId>, set
+  on open and on every save. A profile with no stamp falls back to its created
+  date, so profiles predating this report something truthful rather than reading
+  as active today. Past IDLE_MS (60 days) the row is flagged, the picker shows a
+  cleanup note, and the delete modal warns that "idle" is not "empty" — an old
+  project is still someone's work.
+
+  PROFILE ISOLATION
+  Any number of profiles can be saved in this browser, and each one's data is
   kept and updated entirely separately. Every project carries an ownerId, so an
   account only ever sees, edits, exports or deletes its own projects,
   disciplines, packages, sheets, volumes and export settings. Sign out and sign
