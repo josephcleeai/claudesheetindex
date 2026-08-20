@@ -20,6 +20,12 @@
   --text:#1A1916;
   --text2:#5C5A53;
   --text3:#9B9890;
+  /* Level 3 only: the colour a user-added discipline is drawn in. A dedicated
+     token rather than one of the --text greys because it has to be legible AND
+     obviously different from black at a glance across a 60-row table — the
+     grey it replaced (--text2 #5C5A53) read as slightly-faded black rather
+     than as a distinct category. */
+  --disc-added:#7D4B32;
   --accent:#2D2926;
   --accent-light:#F0EFE9;
   --blue:#1A5FA8;
@@ -208,13 +214,13 @@ select.form-input{cursor:pointer}
 
 /* Level 3 Disciplines — two independent visual axes on every row:
      COLOUR  = provenance. One of the 60 shipped defaults renders in plain
-               black (--text); anything the user added later renders in middle
-               grey (--text2). Decided by prefix membership in
+               black (--text); anything the user added later renders in
+               --disc-added. Decided by prefix membership in
                DEFAULT_DISCIPLINE_PREFIXES, not by a stored flag.
      WEIGHT  = usage. A discipline assigned to at least one sheet in an
                existing package renders the WHOLE row bold; unused rows stay
                plain. The two axes combine freely, so a user-added discipline
-               that is in use is grey AND bold.
+               that is in use is --disc-added AND bold.
    Scoped through #disc-tbody because `.data-table td input` already sets
    color:var(--text) — an id-scoped rule is required to beat it, the same
    specificity rule that governs the #file-list overrides further down.
@@ -223,7 +229,7 @@ select.form-input{cursor:pointer}
 #disc-tbody tr.disc-row td,
 #disc-tbody tr.disc-row td input{color:var(--text)}
 #disc-tbody tr.disc-row-custom td,
-#disc-tbody tr.disc-row-custom td input{color:var(--text2)}
+#disc-tbody tr.disc-row-custom td input{color:var(--disc-added)}
 #disc-tbody tr.disc-row-inuse td,
 #disc-tbody tr.disc-row-inuse td input{font-weight:700}
 /* The Delete button is a control rather than row content, so it keeps the
@@ -994,7 +1000,7 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
       <!-- Legend for the Level 3 row encoding: colour = provenance, weight = usage. -->
       <span style="font-size:11px;color:var(--text3);display:inline-flex;align-items:center;gap:10px;white-space:nowrap" title="Row colour shows where the discipline came from; bold shows it is assigned to sheets in a package.">
         <span style="color:var(--text)">Default</span>
-        <span style="color:var(--text2)">Added</span>
+        <span style="color:var(--disc-added)">Added</span>
         <span style="color:var(--text);font-weight:700">In use</span>
       </span>
       <div style="display:flex;align-items:center;gap:2px;margin-left:auto">
@@ -1324,7 +1330,7 @@ const DEFAULT_DISCIPLINES = [
 
 // Prefix set of the 60 shipped defaults, used by Level 3 to distinguish a
 // default discipline (rendered in plain black) from one the user added later
-// (rendered in middle grey). Derived from DEFAULT_DISCIPLINES rather than
+// (rendered in --disc-added). Derived from DEFAULT_DISCIPLINES rather than
 // stored on each record, so it needs no schema migration and self-corrects:
 // re-prefixing a default makes it a custom row, and vice versa. Prefix is the
 // key because it is already the unique identity of a discipline everywhere
@@ -2255,11 +2261,11 @@ function renderDisciplines() {
     // Row styling carries two independent signals — see the #disc-tbody block
     // in the stylesheet for the colour/weight contract:
     //   isDefault → plain black (one of the 60 shipped defaults)
-    //   !isDefault → middle grey (added later by the user)
+    //   !isDefault → --disc-added (added later by the user)
     //   inUse → whole row bold (assigned to sheets in one or more packages)
     // Both are expressed as classes rather than inline style, because inline
     // style on a cell would beat the row rule and break the combination case
-    // (a user-added discipline that is in use must read grey AND bold).
+    // (a user-added discipline that is in use must read --disc-added AND bold).
     const inUse = disciplineInUse(d.prefix);
     const isDefault = isDefaultDiscipline(d.prefix);
     const rowCls = 'disc-row'
