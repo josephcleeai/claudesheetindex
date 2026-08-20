@@ -206,6 +206,29 @@ select.form-input{cursor:pointer}
 }
 .data-table td input:focus{border-color:var(--border2);background:var(--surface);outline:none}
 
+/* Level 3 Disciplines — two independent visual axes on every row:
+     COLOUR  = provenance. One of the 60 shipped defaults renders in plain
+               black (--text); anything the user added later renders in middle
+               grey (--text2). Decided by prefix membership in
+               DEFAULT_DISCIPLINE_PREFIXES, not by a stored flag.
+     WEIGHT  = usage. A discipline assigned to at least one sheet in an
+               existing package renders the WHOLE row bold; unused rows stay
+               plain. The two axes combine freely, so a user-added discipline
+               that is in use is grey AND bold.
+   Scoped through #disc-tbody because `.data-table td input` already sets
+   color:var(--text) — an id-scoped rule is required to beat it, the same
+   specificity rule that governs the #file-list overrides further down.
+   The <input> elements need the colour/weight restated: form controls do not
+   inherit font or colour from their parent by default in any browser. */
+#disc-tbody tr.disc-row td,
+#disc-tbody tr.disc-row td input{color:var(--text)}
+#disc-tbody tr.disc-row-custom td,
+#disc-tbody tr.disc-row-custom td input{color:var(--text2)}
+#disc-tbody tr.disc-row-inuse td,
+#disc-tbody tr.disc-row-inuse td input{font-weight:700}
+/* The Delete button is a control rather than row content, so it keeps the
+   .btn colour/weight and is deliberately excluded from both axes above. */
+
 /* Cards */
 .card{
   background:var(--surface);border-radius:var(--radius-lg);
@@ -968,6 +991,12 @@ select.status-select{border:1px solid var(--border);padding:3px 4px;border-radiu
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
       <button class="btn btn-sm" onclick="addDiscipline()">+ Add Discipline</button>
       <span style="font-size:12px;color:var(--text3)">Click any cell to edit. Sorted by Order #.</span>
+      <!-- Legend for the Level 3 row encoding: colour = provenance, weight = usage. -->
+      <span style="font-size:11px;color:var(--text3);display:inline-flex;align-items:center;gap:10px;white-space:nowrap" title="Row colour shows where the discipline came from; bold shows it is assigned to sheets in a package.">
+        <span style="color:var(--text)">Default</span>
+        <span style="color:var(--text2)">Added</span>
+        <span style="color:var(--text);font-weight:700">In use</span>
+      </span>
       <div style="display:flex;align-items:center;gap:2px;margin-left:auto">
         <span style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-right:4px">Sort</span>
         <button class="btn btn-sm" id="disc-sort-asc" onclick="setDiscSortDir('asc')" title="Sort ascending (Order # low → high)" style="padding:3px 8px">↑</button>
@@ -1231,42 +1260,78 @@ let S = {
 };
 
 const DEFAULT_DISCIPLINES = [
-  {order:'001',name:'Cover Drawing Index',prefix:'X0',volumeNum:'Volume-1'},
-  {order:'011',name:'Life Safety',prefix:'LS',volumeNum:'Volume-1'},
-  {order:'101',name:'Site Development',prefix:'SID',volumeNum:'Volume-1'},
-  {order:'110',name:'Civil Demolition',prefix:'CD',volumeNum:'Volume-1'},
-  {order:'111',name:'Civil',prefix:'C',volumeNum:'Volume-1'},
-  {order:'130',name:'Landscape Demolition',prefix:'LD',volumeNum:'Volume-1'},
-  {order:'131',name:'Landscape',prefix:'L',volumeNum:'Volume-1'},
-  {order:'200',name:'Structural Demolition',prefix:'SD',volumeNum:'Volume-1'},
-  {order:'201',name:'Structural',prefix:'S',volumeNum:'Volume-1'},
-  {order:'300',name:'Architectural Demolition',prefix:'AD',volumeNum:'Volume-1'},
-  {order:'301',name:'Architecture',prefix:'A',volumeNum:'Volume-1'},
-  {order:'311',name:'Architectural Materials',prefix:'AM',volumeNum:'Volume-1'},
-  {order:'320',name:'Seating Demolition',prefix:'STD',volumeNum:'Volume-1'},
-  {order:'321',name:'Seating',prefix:'ST',volumeNum:'Volume-1'},
-  {order:'331',name:'Graphic Signage',prefix:'GS',volumeNum:'Volume-1'},
-  {order:'340',name:'Interior Architecture Demolition',prefix:'IAD',volumeNum:'Volume-1'},
-  {order:'341',name:'Interior Architecture',prefix:'IA',volumeNum:'Volume-1'},
-  {order:'500',name:'Plumbing Demolition',prefix:'PD',volumeNum:'Volume-1'},
-  {order:'501',name:'Plumbing',prefix:'P',volumeNum:'Volume-1'},
-  {order:'510',name:'Fire Protection Demolition',prefix:'FPD',volumeNum:'Volume-1'},
-  {order:'511',name:'Fire Protection',prefix:'FP',volumeNum:'Volume-1'},
-  {order:'530',name:'Mechanical Demolition',prefix:'MD',volumeNum:'Volume-1'},
-  {order:'531',name:'Mechanical',prefix:'M',volumeNum:'Volume-1'},
-  {order:'600',name:'Electrical Power Demolition',prefix:'EPD',volumeNum:'Volume-1'},
-  {order:'601',name:'Electrical Power',prefix:'EP',volumeNum:'Volume-1'},
-  {order:'610',name:'Electrical Lighting Demolition',prefix:'ELD',volumeNum:'Volume-1'},
-  {order:'611',name:'Electrical Lighting',prefix:'EL',volumeNum:'Volume-1'},
-  {order:'620',name:'Electrical Demolition',prefix:'ED',volumeNum:'Volume-1'},
-  {order:'621',name:'Electrical',prefix:'E',volumeNum:'Volume-1'},
-  {order:'640',name:'Technology Demolition',prefix:'TD',volumeNum:'Volume-1'},
-  {order:'641',name:'Technology',prefix:'T',volumeNum:'Volume-1'},
-  {order:'700',name:'Food Service Demolition',prefix:'FSD',volumeNum:'Volume-1'},
-  {order:'701',name:'Food Service',prefix:'FS',volumeNum:'Volume-1'},
-  {order:'710',name:'Audio Visual Demolition',prefix:'AVD',volumeNum:'Volume-1'},
-  {order:'711',name:'Audio Visual',prefix:'AV',volumeNum:'Volume-1'},
+  {order:'001',name:'COVER SHEET INDEX VOLUME 1',prefix:'X1',volumeNum:'Volume-1'},
+  {order:'002',name:'COVER SHEET INDEX VOLUME 2',prefix:'X2',volumeNum:'Volume-1'},
+  {order:'003',name:'COVER SHEET INDEX VOLUME 3',prefix:'X3',volumeNum:'Volume-1'},
+  {order:'004',name:'COVER SHEET INDEX VOLUME 4',prefix:'X4',volumeNum:'Volume-1'},
+  {order:'005',name:'COVER SHEET INDEX VOLUME 5',prefix:'X5',volumeNum:'Volume-1'},
+  {order:'011',name:'LIFE SAFETY',prefix:'LS',volumeNum:'Volume-1'},
+  {order:'100',name:'SITE DEVELOPMENT DEMOLITION',prefix:'SDD',volumeNum:'Volume-1'},
+  {order:'101',name:'SITE DEVELOPMENT',prefix:'SD',volumeNum:'Volume-1'},
+  {order:'110',name:'CIVIL DEMOLITION',prefix:'CD',volumeNum:'Volume-1'},
+  {order:'111',name:'CIVIL',prefix:'C',volumeNum:'Volume-1'},
+  {order:'120',name:'IRRIGATION DEMOLITION',prefix:'IRD',volumeNum:'Volume-1'},
+  {order:'121',name:'IRRIGATION',prefix:'IR',volumeNum:'Volume-1'},
+  {order:'130',name:'LANDSCAPE DEMOLITION',prefix:'LD',volumeNum:'Volume-1'},
+  {order:'131',name:'LANDSCAPE',prefix:'L',volumeNum:'Volume-1'},
+  {order:'140',name:'PLAYING FIELD DEMOLITION',prefix:'PFD',volumeNum:'Volume-1'},
+  {order:'141',name:'PLAYING FIELD',prefix:'PF',volumeNum:'Volume-1'},
+  {order:'200',name:'STRUCTURAL DEMOLITION',prefix:'DS',volumeNum:'Volume-1'},
+  {order:'201',name:'STRUCTURAL',prefix:'S',volumeNum:'Volume-1'},
+  {order:'210',name:'STRUCTURAL ROOF DEMOLITION',prefix:'SRD',volumeNum:'Volume-1'},
+  {order:'211',name:'STRUCTURAL ROOF',prefix:'SR',volumeNum:'Volume-1'},
+  {order:'220',name:'ROOF MECHANIZATION DEMOLITION',prefix:'RMD',volumeNum:'Volume-1'},
+  {order:'221',name:'ROOF MECHANIZATION',prefix:'RM',volumeNum:'Volume-1'},
+  {order:'230',name:'MOVING PLAYING FIELD DEMOLITION',prefix:'MFD',volumeNum:'Volume-1'},
+  {order:'231',name:'MOVING PLAYING FIELD',prefix:'MF',volumeNum:'Volume-1'},
+  {order:'241',name:'RIGGING',prefix:'R',volumeNum:'Volume-1'},
+  {order:'300',name:'ARCHITECTURAL DEMOLITION',prefix:'AD',volumeNum:'Volume-1'},
+  {order:'301',name:'ARCHITECTURAL',prefix:'A',volumeNum:'Volume-1'},
+  {order:'311',name:'ARCHITECTURAL MATERIALS',prefix:'AM',volumeNum:'Volume-1'},
+  {order:'320',name:'SEATING DEMOLITION',prefix:'STD',volumeNum:'Volume-1'},
+  {order:'321',name:'SEATING',prefix:'ST',volumeNum:'Volume-1'},
+  {order:'331',name:'GRAPHICS SIGNAGE',prefix:'GS',volumeNum:'Volume-1'},
+  {order:'341',name:'INTERIOR ARCHITECTURE',prefix:'IA',volumeNum:'Volume-1'},
+  {order:'351',name:'RETAIL',prefix:'RT',volumeNum:'Volume-1'},
+  {order:'361',name:'FIXTURES FURNITURE EQUIPMENT',prefix:'FFE',volumeNum:'Volume-1'},
+  {order:'400',name:'SITE SYSTEMS DEMOLITION',prefix:'SSD',volumeNum:'Volume-1'},
+  {order:'401',name:'SITE SYSTEMS',prefix:'SS',volumeNum:'Volume-1'},
+  {order:'500',name:'PLUMBING DEMOLITION',prefix:'PD',volumeNum:'Volume-1'},
+  {order:'501',name:'PLUMBING',prefix:'P',volumeNum:'Volume-1'},
+  {order:'510',name:'FIRE PROTECTION DEMOLITION',prefix:'FPD',volumeNum:'Volume-1'},
+  {order:'511',name:'FIRE PROTECTION',prefix:'FP',volumeNum:'Volume-1'},
+  {order:'520',name:'FIRE ALARM DEMOLITION',prefix:'FAD',volumeNum:'Volume-1'},
+  {order:'521',name:'FIRE ALARM',prefix:'FA',volumeNum:'Volume-1'},
+  {order:'530',name:'MECHANICAL DEMOLITION',prefix:'MD',volumeNum:'Volume-1'},
+  {order:'531',name:'MECHANICAL',prefix:'M',volumeNum:'Volume-1'},
+  {order:'600',name:'ELECTRICAL DEMOLITION',prefix:'ED',volumeNum:'Volume-1'},
+  {order:'601',name:'ELECTRICAL',prefix:'E',volumeNum:'Volume-1'},
+  {order:'610',name:'ELECTRICAL LIGHTING DEMOLITION',prefix:'ELD',volumeNum:'Volume-1'},
+  {order:'611',name:'ELECTRICAL LIGHTING',prefix:'EL',volumeNum:'Volume-1'},
+  {order:'640',name:'TECHNOLOGY DEMOLITION',prefix:'TD',volumeNum:'Volume-1'},
+  {order:'641',name:'TECHNOLOGY',prefix:'T',volumeNum:'Volume-1'},
+  {order:'650',name:'COMMUNICATION SECURITY DEMOLITION',prefix:'CSD',volumeNum:'Volume-1'},
+  {order:'651',name:'COMMUNICATION SECURITY',prefix:'CS',volumeNum:'Volume-1'},
+  {order:'700',name:'FOOD SERVICE DEMOLITION',prefix:'FSD',volumeNum:'Volume-1'},
+  {order:'701',name:'FOOD SERVICE',prefix:'FS',volumeNum:'Volume-1'},
+  {order:'710',name:'AUDIO VISUAL DEMOLITION',prefix:'AVD',volumeNum:'Volume-1'},
+  {order:'711',name:'AUDIO VISUAL',prefix:'AV',volumeNum:'Volume-1'},
+  {order:'720',name:'AQUATICS DEMOLITION',prefix:'SPD',volumeNum:'Volume-1'},
+  {order:'721',name:'AQUATICS',prefix:'SP',volumeNum:'Volume-1'},
+  {order:'900',name:'COORDINATION',prefix:'CO',volumeNum:'Volume-1'},
+  {order:'910',name:'PRESENTATION',prefix:'PR',volumeNum:'Volume-1'},
 ];
+
+// Prefix set of the 60 shipped defaults, used by Level 3 to distinguish a
+// default discipline (rendered in plain black) from one the user added later
+// (rendered in middle grey). Derived from DEFAULT_DISCIPLINES rather than
+// stored on each record, so it needs no schema migration and self-corrects:
+// re-prefixing a default makes it a custom row, and vice versa. Prefix is the
+// key because it is already the unique identity of a discipline everywhere
+// else in the app (sheet\u2194discipline matching, updateDiscPrefix duplicate
+// guard, saveDisciplines validation).
+const DEFAULT_DISCIPLINE_PREFIXES = new Set(DEFAULT_DISCIPLINES.map(d => d.prefix));
+function isDefaultDiscipline(prefix) { return DEFAULT_DISCIPLINE_PREFIXES.has(String(prefix)); }
 
 const DEFAULT_PACKAGES = [
   {id:uid(),pCode:'Sheet.Index.P0',name:'Schematic Design Package',abbr:'SD',due:'2027-03-01',sheets:[]},
@@ -1920,6 +1985,9 @@ function createProject() {
     id: uid(),
     ownerId: S.user.id,
     disciplines: JSON.parse(JSON.stringify(DEFAULT_DISCIPLINES)),
+    // Born with the full default set, so the one-time additive merge in
+    // migrateProjects() has nothing to do and a deleted default stays deleted.
+    discDefaults60: true,
     packages: JSON.parse(JSON.stringify(DEFAULT_PACKAGES)),
     statuses: JSON.parse(JSON.stringify(DEFAULT_STATUSES)),
     sheets: [],
@@ -1956,6 +2024,7 @@ function saveProject(silent) {
       id: uid(),
       ownerId: S.user.id,
       disciplines: JSON.parse(JSON.stringify(DEFAULT_DISCIPLINES)),
+      discDefaults60: true,   // see createProject()
       packages: JSON.parse(JSON.stringify(DEFAULT_PACKAGES)),
       statuses: JSON.parse(JSON.stringify(DEFAULT_STATUSES)),
       sheets: [],
@@ -2183,23 +2252,35 @@ function renderDisciplines() {
   const sorted = [...S.project.disciplines].sort((a,b) =>
     dir * a.order.localeCompare(b.order, 'en', {numeric:true}));
   tbody.innerHTML = sorted.map(d => {
-    // Active-usage indicator: bold when this Disciplines Sort Order is used by
-    // any package; otherwise the cell keeps its default styling. The value is
-    // always displayed uppercase (display-only — the stored name is unchanged),
-    // matching the uppercase Discipline Name column it is derived from.
+    // Row styling carries two independent signals — see the #disc-tbody block
+    // in the stylesheet for the colour/weight contract:
+    //   isDefault → plain black (one of the 60 shipped defaults)
+    //   !isDefault → middle grey (added later by the user)
+    //   inUse → whole row bold (assigned to sheets in one or more packages)
+    // Both are expressed as classes rather than inline style, because inline
+    // style on a cell would beat the row rule and break the combination case
+    // (a user-added discipline that is in use must read grey AND bold).
     const inUse = disciplineInUse(d.prefix);
-    const sortOrderStyle = inUse
-      ? 'display:inline-block;white-space:nowrap;text-transform:uppercase;color:var(--text);font-size:12px;font-weight:700'
-      : 'display:inline-block;white-space:nowrap;text-transform:uppercase;color:var(--text2);font-size:12px';
+    const isDefault = isDefaultDiscipline(d.prefix);
+    const rowCls = 'disc-row'
+      + (isDefault ? '' : ' disc-row-custom')
+      + (inUse ? ' disc-row-inuse' : '');
+    const rowTitle = (isDefault ? 'Default discipline' : 'Added to this project')
+      + (inUse ? ' · In use — assigned to sheets in one or more packages' : ' · Not used by any package');
+    // The Disciplines Sort Order value is always displayed uppercase
+    // (display-only — the stored name is unchanged), matching the uppercase
+    // Discipline Name column it is derived from. Colour and weight are left to
+    // the row rule so this cell tracks the rest of the row.
+    const sortOrderStyle = 'display:inline-block;white-space:nowrap;text-transform:uppercase;font-size:12px';
     const cellTitle = inUse
       ? 'In use — assigned to sheets in one or more packages'
       : 'Auto-generated from Order and Discipline Name';
     return `
-    <tr data-prefix="${escHtml(d.prefix)}">
+    <tr class="${rowCls}" data-prefix="${escHtml(d.prefix)}" data-default="${isDefault ? '1' : '0'}" data-inuse="${inUse ? '1' : '0'}" title="${escHtml(rowTitle)}">
       <td style="text-align:left"><input class="mono" value="${escHtml(d.order)}" onchange="updateDisc('${escHtml(d.prefix)}','order',this.value)" style="width:80px"/></td>
       <td style="text-align:left"><input value="${escHtml(d.name)}" onchange="updateDisc('${escHtml(d.prefix)}','name',this.value)" style="text-transform:uppercase"/></td>
       <td style="text-align:left"><span class="mono" style="${sortOrderStyle}" title="${escHtml(cellTitle)}">${escHtml(d.order)}-${escHtml(d.name)}</span></td>
-      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px;font-weight:700"/></td>
+      <td style="text-align:left"><input class="mono" type="text" inputmode="text" value="${escHtml(d.prefix)}" onchange="updateDiscPrefix('${escHtml(d.prefix)}',this.value)" style="width:90px"/></td>
       <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteDisc('${escHtml(d.prefix)}')">×</button></td>
     </tr>
   `;
@@ -5658,6 +5739,30 @@ function migrateProjects(projects) {
         if (!disc.volumeNum) { disc.volumeNum = 'Volume-1'; changed = true; }
       });
     }
+  });
+
+  // Migration: merge the shipped default disciplines into projects created
+  // before the 60-discipline set existed. ADDITIVE ONLY — a default whose
+  // prefix is already present is left completely untouched (order, name and
+  // volumeNum all preserved), because the prefix is what binds a sheet to its
+  // discipline: rewriting the name of an existing prefix would silently
+  // relabel sheets the user already uploaded. Anything the user added stays.
+  //
+  // Guarded by a per-project flag rather than run on every load, so that
+  // deleting a default discipline sticks. An unconditional re-seed would make
+  // the 60 defaults undeletable — they would reappear on the next load.
+  (projects || []).forEach(proj => {
+    if (proj.discDefaults60) return;
+    if (!Array.isArray(proj.disciplines)) proj.disciplines = [];
+    const have = new Set(proj.disciplines.map(d => String(d.prefix)));
+    DEFAULT_DISCIPLINES.forEach(def => {
+      if (!have.has(String(def.prefix))) {
+        proj.disciplines.push(JSON.parse(JSON.stringify(def)));
+        have.add(String(def.prefix));
+      }
+    });
+    proj.discDefaults60 = true;
+    changed = true;
   });
 
   // Migration: convert sheet.volumeNum (global) to sheet.volumes[packageId]
